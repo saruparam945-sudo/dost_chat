@@ -1,5 +1,5 @@
 name: dost_chat
-description: Free lifetime social chat and calling app.
+description: Free lifetime social chat, calling, ludo and watch together app.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -13,6 +13,7 @@ dependencies:
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
   url_launcher: ^6.3.1
+  youtube_player_flutter: ^9.1.1
 
 dev_dependencies:
   flutter_test:
