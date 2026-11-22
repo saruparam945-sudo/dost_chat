@@ -1,28 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: 'AIzaSyCqb6i5QW_NVuzjVvAKrYUytC2IkHDLsE',
-        appId: '1:793598560917:android:8f87daabf9c4cbbf41959c',
-        messagingSenderId: '793598560917',
-        projectId: 'dostchat-e903a',
-      ),
-    );
-  } catch (e) {
-    debugPrint('Firebase Init Error: $e');
-  }
+const String projectId = 'dostchat-e903a';
+const String baseUrl = 'https://googleapis.com';
+
+void main() {
   runApp(const DostChatApp());
 }
-
 
 class DostChatApp extends StatelessWidget {
   const DostChatApp({super.key});
@@ -36,17 +23,45 @@ class DostChatApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF0E0E0E),
         primaryColor: const Color(0xFF00BFA5),
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-          if (snapshot.hasData) return const HomeScreen();
-          return const LoginScreen();
-        },
-      ),
+      home: const AuthCheckScreen(),
     );
+  }
+}
+
+class AuthCheckScreen extends StatefulWidget {
+  const AuthCheckScreen({super.key});
+
+  @override
+  State<AuthCheckScreen> createState() => _AuthCheckScreenState();
+}
+
+class _AuthCheckScreenState extends State<AuthCheckScreen> {
+  String? _userId;
+  String? _userName;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSavedUser();
+  }
+
+  Future<void> _checkSavedUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userId = prefs.getString('userId');
+      _userName = prefs.getString('userName');
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_userId != null && _userName != null) {
+      return HomeScreen(myId: _userId!, myName: _userName!);
+    }
+    return const LoginScreen();
   }
 }
 
@@ -58,65 +73,94 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  bool _isLoading = false;
+  final _nameCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  bool _isSaving = false;
 
-  Future<void> _signInWithGoogle() async {
-    setState(() => _isLoading = true);
+  Future<void> _joinNow() async {
+    if (_nameCtrl.text.trim().isEmpty) return;
+    setState(() => _isSaving = true);
+    final String uid = 'user_${DateTime.now().millisecondsSinceEpoch}';
+    final String name = _nameCtrl.text.trim();
+    final String city = _cityCtrl.text.trim().isEmpty ? 'India' : _cityCtrl.text.trim();
+
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) {
-        setState(() => _isLoading = false);
-        return;
-      }
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+      await http.patch(
+        Uri.parse('$baseUrl/users/$uid'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'fields': {
+            'uid': {'stringValue': uid},
+            'name': {'stringValue': name},
+            'city': {'stringValue': city},
+          }
+        }),
       );
-      UserCredential userCred = await FirebaseAuth.instance.signInWithCredential(credential);
-      User? user = userCred.user;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userId', uid);
+      await prefs.setString('userName', name);
 
-      if (user != null) {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'uid': user.uid,
-          'name': user.displayName ?? 'New Dost',
-          'email': user.email ?? '',
-          'photo': user.photoURL ?? '',
-          'isOnline': true,
-        }, SetOptions(merge: true));
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => HomeScreen(myId: uid, myName: name)),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
-    if (mounted) setState(() => _isLoading = false);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.chat_bubble_rounded, size: 80, color: Color(0xFF00BFA5)),
-            const SizedBox(height: 20),
-            const Text('DostChat', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            const Text('नए दोस्त बनाएं, फ्री चैट और कॉल करें', style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 40),
-            _isLoading
+            const Icon(Icons.chat_bubble_rounded, size: 75, color: Color(0xFF00BFA5)),
+            const SizedBox(height: 16),
+            const Text('DostChat', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+            const Text('नए दोस्त बनाएं • लाइफटाइम फ्री चैट', style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 30),
+            TextField(
+              controller: _nameCtrl,
+              decoration: InputDecoration(
+                hintText: 'अपना नाम लिखें',
+                filled: true,
+                fillColor: const Color(0xFF1F1F1F),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _cityCtrl,
+              decoration: InputDecoration(
+                hintText: 'आपका शहर (जैसे: जयपुर, दिल्ली)',
+                filled: true,
+                fillColor: const Color(0xFF1F1F1F),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 24),
+            _isSaving
                 ? const CircularProgressIndicator(color: Color(0xFF00BFA5))
-                : ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00BFA5),
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                : SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00BFA5),
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: _joinNow,
+                      child: const Text('Start Chatting (Free)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
-                    icon: const Icon(Icons.login),
-                    label: const Text('Continue with Google (Free)', style: TextStyle(fontWeight: FontWeight.bold)),
-                    onPressed: _signInWithGoogle,
                   ),
           ],
         ),
@@ -124,132 +168,173 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  final String myId;
+  final String myName;
+  const HomeScreen({super.key, required this.myId, required this.myName});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  List<Map<String, String>> _users = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUsers();
+  }
+
+  Future<void> _fetchUsers() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/users'));
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final docs = data['documents'] as List<dynamic>? ?? [];
+        List<Map<String, String>> loaded = [];
+        for (var doc in docs) {
+          final fields = doc['fields'] ?? {};
+          final uid = fields['uid']?['stringValue'] ?? '';
+          if (uid.isNotEmpty && uid != widget.myId) {
+            loaded.add({
+              'uid': uid,
+              'name': fields['name']?['stringValue'] ?? 'Dost',
+              'city': fields['city']?['stringValue'] ?? 'India',
+            });
+          }
+        }
+        setState(() => _users = loaded);
+      }
+    } catch (_) {}
+    setState(() => _loading = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser!;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('DostChat - नए दोस्त'),
+        title: Text('DostChat (${widget.myName})'),
         backgroundColor: const Color(0xFF1A1A1A),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await GoogleSignIn().signOut();
-              await FirebaseAuth.instance.signOut();
-            },
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchUsers),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-          final users = snapshot.data!.docs.where((doc) => doc.id != currentUser.uid).toList();
-          if (users.isEmpty) {
-            return const Center(child: Text('अभी कोई दूसरा दोस्त ऑनलाइन नहीं है।', style: TextStyle(color: Colors.grey)));
-          }
-          return ListView.builder(
-            itemCount: users.length,
-            itemBuilder: (context, index) {
-              final data = users[index].data() as Map<String, dynamic>;
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFF00BFA5),
-                  backgroundImage: (data['photo'] != null && data['photo'] != '') ? NetworkImage(data['photo']) : null,
-                  child: (data['photo'] == null || data['photo'] == '') ? const Icon(Icons.person, color: Colors.black) : null,
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00BFA5)))
+          : _users.isEmpty
+              ? const Center(child: Text('अभी कोई दूसरा दोस्त ऑनलाइन नहीं है।\nदूसरे फोन से भी नाम डालकर जुड़ें!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+              : ListView.builder(
+                  itemCount: _users.length,
+                  itemBuilder: (context, index) {
+                    final u = _users[index];
+                    return ListTile(
+                      leading: const CircleAvatar(backgroundColor: Color(0xFF00BFA5), child: Icon(Icons.person, color: Colors.black)),
+                      title: Text(u['name']!, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${u['city']} • Online', style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                      trailing: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BFA5), foregroundColor: Colors.black),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ChatScreen(myId: widget.myId, friendId: u['uid']!, friendName: u['name']!)),
+                        ),
+                        child: const Text('Chat'),
+                      ),
+                    );
+                  },
                 ),
-                title: Text(data['name'] ?? 'Dost', style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Online', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
-                trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00BFA5), foregroundColor: Colors.black),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => ChatScreen(friendId: data['uid'], friendName: data['name'] ?? 'Dost')),
-                  ),
-                  child: const Text('Chat'),
-                ),
-              );
-            },
-          );
-        },
-      ),
     );
   }
 }
 
 class ChatScreen extends StatefulWidget {
+  final String myId;
   final String friendId;
   final String friendName;
-  const ChatScreen({super.key, required this.friendId, required this.friendName});
+  const ChatScreen({super.key, required this.myId, required this.friendId, required this.friendName});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _msgController = TextEditingController();
-  final currentUser = FirebaseAuth.instance.currentUser!;
-  List<Map<String, dynamic>> _localMessages = [];
+  final _msgCtrl = TextEditingController();
+  List<Map<String, String>> _messages = [];
+  Timer? _timer;
 
-  String get _chatRoomId {
-    List<String> ids = [currentUser.uid, widget.friendId];
-    ids.sort();
+  String get _roomId {
+    final ids = [widget.myId, widget.friendId]..sort();
     return ids.join('_');
   }
 
   @override
   void initState() {
     super.initState();
-    _loadLocalMessages();
-    _listenAndDeleteFromServer();
+    _loadLocal();
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _syncAndDelete());
   }
 
-  Future<void> _loadLocalMessages() async {
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadLocal() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? saved = prefs.getString('chat_$_chatRoomId');
-    if (saved != null) {
-      setState(() => _localMessages = List<Map<String, dynamic>>.from(json.decode(saved)));
+    final raw = prefs.getString('chat_$_roomId');
+    if (raw != null) {
+      final list = json.decode(raw) as List;
+      setState(() => _messages = list.map((e) => Map<String, String>.from(e)).toList());
     }
   }
 
-  Future<void> _saveMessageLocally(Map<String, dynamic> msg) async {
+  Future<void> _saveLocal(Map<String, String> msg) async {
     final prefs = await SharedPreferences.getInstance();
-    _localMessages.add(msg);
-    await prefs.setString('chat_$_chatRoomId', json.encode(_localMessages));
+    _messages.add(msg);
+    await prefs.setString('chat_$_roomId', json.encode(_messages));
     if (mounted) setState(() {});
   }
 
-  void _listenAndDeleteFromServer() {
-    FirebaseFirestore.instance
-        .collection('chats')
-        .doc(_chatRoomId)
-        .collection('messages')
-        .where('receiverId', isEqualTo: currentUser.uid)
-        .snapshots()
-        .listen((snapshot) async {
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        await _saveMessageLocally({'text': data['text'], 'senderId': data['senderId']});
-        await doc.reference.delete();
+  Future<void> _syncAndDelete() async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/chats_$_roomId'));
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final docs = data['documents'] as List<dynamic>? ?? [];
+        for (var doc in docs) {
+          final fields = doc['fields'] ?? {};
+          final receiver = fields['receiverId']?['stringValue'] ?? '';
+          if (receiver == widget.myId) {
+            final text = fields['text']?['stringValue'] ?? '';
+            final sender = fields['senderId']?['stringValue'] ?? '';
+            await _saveLocal({'text': text, 'senderId': sender});
+            final docName = doc['name'];
+            await http.delete(Uri.parse('https://googleapis.com'));
+          }
+        }
       }
-    });
+    } catch (_) {}
   }
 
-  Future<void> _sendMessage() async {
-    final text = _msgController.text.trim();
+  Future<void> _send() async {
+    final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
-    _msgController.clear();
-    await _saveMessageLocally({'text': text, 'senderId': currentUser.uid});
-    await FirebaseFirestore.instance.collection('chats').doc(_chatRoomId).collection('messages').add({
-      'text': text,
-      'senderId': currentUser.uid,
-      'receiverId': widget.friendId,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
+    _msgCtrl.clear();
+    await _saveLocal({'text': text, 'senderId': widget.myId});
+    await http.post(
+      Uri.parse('$baseUrl/chats_$_roomId'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'fields': {
+          'text': {'stringValue': text},
+          'senderId': {'stringValue': widget.myId},
+          'receiverId': {'stringValue': widget.friendId},
+        }
+      }),
+    );
   }
 
   @override
@@ -261,10 +346,10 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _localMessages.length,
+              itemCount: _messages.length,
               itemBuilder: (context, index) {
-                final msg = _localMessages[index];
-                final isMe = msg['senderId'] == currentUser.uid;
+                final m = _messages[index];
+                final isMe = m['senderId'] == widget.myId;
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -274,7 +359,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       color: isMe ? const Color(0xFF00BFA5) : const Color(0xFF262626),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Text(msg['text'] ?? '', style: TextStyle(color: isMe ? Colors.black : Colors.white)),
+                    child: Text(m['text'] ?? '', style: TextStyle(color: isMe ? Colors.black : Colors.white)),
                   ),
                 );
               },
@@ -287,11 +372,11 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 Expanded(
                   child: TextField(
-                    controller: _msgController,
+                    controller: _msgCtrl,
                     decoration: const InputDecoration(hintText: 'मैसेज लिखें...', border: InputBorder.none),
                   ),
                 ),
-                IconButton(icon: const Icon(Icons.send, color: Color(0xFF00BFA5)), onPressed: _sendMessage),
+                IconButton(icon: const Icon(Icons.send, color: Color(0xFF00BFA5)), onPressed: _send),
               ],
             ),
           ),
