@@ -233,15 +233,125 @@ class _HomePageState extends State<HomePage> {
                 fillColor: Colors.white,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
               ),
+class HomePage extends StatefulWidget {
+  final String myId, myName, myCity;
+  const HomePage({super.key, required this.myId, required this.myName, required this.myCity});
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  List<Map<String, String>> users = [];
+  List<String> blockedIds = [];
+  String searchQuery = '';
+  String? nextPageToken;
+  bool isLoadingMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBlockedAndUsers();
+  }
+
+  Future<void> _loadBlockedAndUsers() async {
+    final p = await SharedPreferences.getInstance();
+    blockedIds = p.getStringList('blocked') ?? [];
+    await loadUsers(reset: true);
+  }
+
+  // एक बार में केवल 20 यूज़र्स ही लाएगा (Pagination - 0 लिमिट बर्बादी)
+  Future<void> loadUsers({bool reset = false}) async {
+    if (isLoadingMore) return;
+    setState(() => isLoadingMore = true);
+    if (reset) {
+      users.clear();
+      nextPageToken = null;
+    }
+    try {
+      String url = baseUrl + '/users?pageSize=20';
+      if (nextPageToken != null && nextPageToken!.isNotEmpty) {
+        url += '&pageToken=' + nextPageToken!;
+      }
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode == 200) {
+        final decoded = json.decode(res.body);
+        final docs = (decoded['documents'] as List?) ?? [];
+        nextPageToken = decoded['nextPageToken'];
+
+        final newBatch = docs
+            .map((d) => d['fields'])
+            .where((f) => f != null && f['uid']?['stringValue'] != widget.myId && !blockedIds.contains(f['uid']?['stringValue']))
+            .map((f) => {
+                  'uid': f['uid']['stringValue'].toString(),
+                  'name': (f['name']?['stringValue'] ?? 'Dost').toString(),
+                  'city': (f['city']?['stringValue'] ?? 'India').toString(),
+                })
+            .toList();
+
+        setState(() => users.addAll(newBatch));
+      }
+    } catch (_) {}
+    setState(() => isLoadingMore = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = users.where((u) => u['name']!.toLowerCase().contains(searchQuery.toLowerCase()) || u['city']!.toLowerCase().contains(searchQuery.toLowerCase())).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('DostChat', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: () => loadUsers(reset: true)),
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: Text(widget.myName),
+                content: Text('शहर: ' + widget.myCity + '\nID: ' + widget.myId),
+                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('ठीक है'))],
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              onChanged: (v) => setState(() => searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'नाम या शहर से नए दोस्त खोजें...',
+                prefixIcon: const Icon(Icons.search, color: Color(0xFF00897B)),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
             ),
           ),
           Expanded(
-            child: filtered.isEmpty
+            child: filtered.isEmpty && !isLoadingMore
                 ? const Center(child: Text('कोई नया दोस्त नहीं मिला।\nऊपर रिफ्रेश दबाएं या दूसरे फोन से जुड़ें!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: filtered.length,
+                    itemCount: filtered.length + (nextPageToken != null ? 1 : 0),
                     itemBuilder: (_, i) {
+                      if (i == filtered.length) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Center(
+                            child: isLoadingMore
+                                ? const CircularProgressIndicator(color: Color(0xFF00897B))
+                                : OutlinedButton.icon(
+                                    onPressed: () => loadUsers(reset: false),
+                                    icon: const Icon(Icons.expand_more, color: Color(0xFF00897B)),
+                                    label: const Text('और नए दोस्त देखें (Load More)', style: TextStyle(color: Color(0xFF00897B))),
+                                  ),
+                          ),
+                        );
+                      }
                       final u = filtered[i];
                       return Card(
                         color: Colors.white,
@@ -258,7 +368,7 @@ class _HomePageState extends State<HomePage> {
                             children: [
                               const Icon(Icons.circle, size: 10, color: Colors.green),
                               const SizedBox(width: 5),
-                              Text('${u['city']} • Online', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                              Text(u['city']! + ' • Online', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                             ],
                           ),
                           trailing: ElevatedButton(
@@ -276,6 +386,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
+              
 class ChatPage extends StatefulWidget {
   final String myId, friendId, friendName;
   const ChatPage({super.key, required this.myId, required this.friendId, required this.friendName});
