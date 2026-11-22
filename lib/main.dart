@@ -8,9 +8,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: 'AIzaSyCqb6i5QW_NVuzjVvAKrYUytC2IkHDLsE',
+      appId: '1:793598560917:android:8f87daabf9c4cbbf41959c',
+      messagingSenderId: '793598560917',
+      projectId: 'dostchat-e903a',
+    ),
+  );
   runApp(const DostChatApp());
 }
+
 
 class DostChatApp extends StatelessWidget {
   const DostChatApp({super.key});
