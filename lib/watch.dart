@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-const String watchBaseUrl = 'https://googleapis.com';
+const String watchBaseUrl = 'https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/projects/dostchat-e903a/databases/(default)/documents';
 
 class WatchTogetherPage extends StatefulWidget {
   final String room, myId, friendName;
@@ -15,32 +15,34 @@ class WatchTogetherPage extends StatefulWidget {
 
 class _WatchTogetherPageState extends State<WatchTogetherPage> {
   final urlCtrl = TextEditingController();
-  YoutubePlayerController? _ytCtrl;
-  String currentVideoId = 'dQw4w9WgXcQ';
-  bool isPlaying = true;
+  String currentVideoId = '';
+  String statusText = 'अभी कोई फिल्म नहीं चल रही है। नीचे YouTube लिंक डालें!';
   Timer? syncTimer;
 
   @override
   void initState() {
     super.initState();
-    _initPlayer(currentVideoId);
     _syncVideo();
     syncTimer = Timer.periodic(const Duration(seconds: 3), (_) => _syncVideo());
-  }
-
-  void _initPlayer(String videoId) {
-    _ytCtrl?.dispose();
-    _ytCtrl = YoutubePlayerController(
-      initialVideoId: videoId,
-      flags: const YoutubePlayerFlags(autoPlay: true, mute: false),
-    );
   }
 
   @override
   void dispose() {
     syncTimer?.cancel();
-    _ytCtrl?.dispose();
     super.dispose();
+  }
+
+  String _extractVideoId(String url) {
+    if (url.contains('youtu.be/')) {
+      return url.split('youtu.be/').last.split('?').first.split('&').first;
+    }
+    if (url.contains('v=')) {
+      return url.split('v=').last.split('&').first;
+    }
+    if (url.contains('/shorts/')) {
+      return url.split('/shorts/').last.split('?').first;
+    }
+    return '';
   }
 
   Future<void> _syncVideo() async {
@@ -50,23 +52,28 @@ class _WatchTogetherPageState extends State<WatchTogetherPage> {
         final f = json.decode(res.body)['fields'];
         if (f != null && mounted) {
           final remoteVid = f['vid']?['stringValue'] ?? '';
-          final remotePlay = f['play']?['booleanValue'] ?? true;
           if (remoteVid.isNotEmpty && remoteVid != currentVideoId) {
             setState(() {
               currentVideoId = remoteVid;
-              _ytCtrl?.load(remoteVid);
+              statusText = '🎬 नई फिल्म लोड हो गई है! "Watch Now" दबाकर साथ देखें';
             });
-          }
-          if (remotePlay != isPlaying) {
-            isPlaying = remotePlay;
-            remotePlay ? _ytCtrl?.play() : _ytCtrl?.pause();
           }
         }
       }
     } catch (_) {}
   }
 
-  Future<void> _pushVideo(String vid, bool play) async {
+  Future<void> _shareAndPlay() async {
+    final vid = _extractVideoId(urlCtrl.text.trim());
+    if (vid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया सही YouTube वीडियो या फिल्म का लिंक पेस्ट करें!')));
+      return;
+    }
+    setState(() {
+      currentVideoId = vid;
+      statusText = '🎬 फिल्म तैयार है! दोनों दोस्त एक साथ देख सकते हैं';
+    });
+    urlCtrl.clear();
     try {
       await http.patch(
         Uri.parse(watchBaseUrl + '/watch_' + widget.room + '/state'),
@@ -74,114 +81,81 @@ class _WatchTogetherPageState extends State<WatchTogetherPage> {
         body: json.encode({
           'fields': {
             'vid': {'stringValue': vid},
-            'play': {'booleanValue': play},
           }
         }),
       );
     } catch (_) {}
+    _openYouTube(vid);
   }
 
-  void _loadFromLink() {
-    final id = YoutubePlayer.convertUrlToId(urlCtrl.text.trim());
-    if (id != null && id.isNotEmpty) {
-      setState(() {
-        currentVideoId = id;
-        isPlaying = true;
-        _ytCtrl?.load(id);
-      });
-      _pushVideo(id, true);
-      urlCtrl.clear();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('कृपया सही YouTube वीडियो लिंक डालें!')));
-    }
+  Future<void> _openYouTube(String vid) async {
+    final url = Uri.parse('https://www' + '.' + 'youtube' + '.' + 'com/watch?v=' + vid);
+    await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: Text('🎬 Watch with ' + widget.friendName),
         backgroundColor: const Color(0xFF00897B),
+        foregroundColor: Colors.white,
       ),
-      body: Column(
-        children: [
-          if (_ytCtrl != null)
-            YoutubePlayer(
-              controller: _ytCtrl!,
-              showVideoProgressIndicator: true,
-              progressIndicatorColor: const Color(0xFF00897B),
-            ),
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: const Color(0xFF1A1A1A),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: urlCtrl,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: 'YouTube फिल्म या गाने का लिंक पेस्ट करें...',
-                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
-                          filled: true,
-                          fillColor: const Color(0xFF2C2C2C),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                        ),
-                      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+              child: Column(
+                children: [
+                  const Text('साथ में फिल्म या गाना देखें', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: urlCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'YouTube लिंक यहाँ पेस्ट करें...',
+                      prefixIcon: const Icon(Icons.link, color: Color(0xFF00897B)),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00897B), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 16)),
-                      onPressed: _loadFromLink,
-                      child: const Text('चलाएं'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                      onPressed: () {
-                        setState(() => isPlaying = true);
-                        _ytCtrl?.play();
-                        _pushVideo(currentVideoId, true);
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('दोनों के लिए Play'),
-                    ),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-                      onPressed: () {
-                        setState(() => isPlaying = false);
-                        _ytCtrl?.pause();
-                        _pushVideo(currentVideoId, false);
-                      },
-                      icon: const Icon(Icons.pause),
-                      label: const Text('दोनों के लिए Pause'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const Expanded(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  '💡 टिप: YouTube से किसी भी मूवी या गाने का Share -> Copy Link करें और ऊपर पेस्ट करके "चलाएं" दबाएं—दोनों दोस्तों के फोन में एक साथ चलेगा!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00897B), foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                    onPressed: _shareAndPlay,
+                    icon: const Icon(Icons.play_circle_fill),
+                    label: const Text('दोनों के लिए फिल्म चलाएं', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            if (currentVideoId.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network('https://img' + '.' + 'youtube' + '.' + 'com/vi/' + currentVideoId + '/0.jpg', height: 180, width: double.infinity, fit: BoxFit.cover),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(statusText, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00897B))),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 48)),
+                      onPressed: () => _openYouTube(currentVideoId),
+                      icon: const Icon(Icons.smart_display),
+                      label: const Text('अभी साथ में देखें (Watch Now)', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
