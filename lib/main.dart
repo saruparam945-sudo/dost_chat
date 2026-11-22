@@ -1,4 +1,5 @@
 import 'ludo.dart';
+import 'watch.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -415,6 +416,21 @@ class _ChatPageState extends State<ChatPage> {
         actions: [
           IconButton(icon: const Icon(Icons.call), onPressed: () => startFreeCall(false)),
           IconButton(icon: const Icon(Icons.videocam), onPressed: () => startFreeCall(true)),
+          IconButton(
+  icon: const Icon(Icons.casino),
+  onPressed: () {
+    send(text: '🎲 मैंने Ludo Game शुरू किया है — खेलने के लिए ऊपर 🎲 बटन दबाएं!');
+    Navigator.push(context, MaterialPageRoute(builder: (_) => LudoGamePage(room: room, myId: widget.myId, friendName: widget.friendName)));
+  },
+),
+IconButton(
+  icon: const Icon(Icons.movie),
+  onPressed: () {
+    send(text: '🎬 मैंने साथ में फिल्म देखने के लिए Watch Together शुरू किया है — ऊपर 🎬 बटन दबाएं!');
+    Navigator.push(context, MaterialPageRoute(builder: (_) => WatchTogetherPage(room: room, myId: widget.myId, friendName: widget.friendName)));
+  },
+),
+          
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'block') blockUser();
