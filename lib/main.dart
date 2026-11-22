@@ -294,7 +294,7 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
-      final raw = p.getString('c_$room');
+      final raw = p.getString('c_' + room);
       if (raw != null) setState(() => msgs = (json.decode(raw) as List).map((e) => Map<String, String>.from(e)).toList());
     });
     timer = Timer.periodic(const Duration(seconds: 3), (_) => sync());
@@ -309,19 +309,20 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> save(Map<String, String> m) async {
     final p = await SharedPreferences.getInstance();
     msgs.add(m);
-    await p.setString('c_$room', json.encode(msgs));
+    await p.setString('c_' + room, json.encode(msgs));
     if (mounted) setState(() {});
   }
 
   Future<void> sync() async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/c_$room'));
+      final res = await http.get(Uri.parse(baseUrl + '/c_' + room));
       if (res.statusCode == 200) {
         for (var d in (json.decode(res.body)['documents'] as List? ?? [])) {
           final f = d['fields'];
           if (f != null && f['to']?['stringValue'] == widget.myId) {
             await save({'t': f['t']?['stringValue'] ?? '', 'img': f['img']?['stringValue'] ?? '', 's': f['s']['stringValue']});
-            await http.delete(Uri.parse('https://googleapis.com{d['name']}'));
+            final docPath = d['name'].toString();
+            await http.delete(Uri.parse('https://googleapis.com' + docPath));
           }
         }
       }
@@ -333,7 +334,7 @@ class _ChatPageState extends State<ChatPage> {
     msgCtrl.clear();
     await save({'t': text, 'img': imgBase64, 's': widget.myId});
     await http.post(
-      Uri.parse('$baseUrl/c_$room'),
+      Uri.parse(baseUrl + '/c_' + room),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
         'fields': {
@@ -358,7 +359,8 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> startFreeCall(bool isVideo) async {
     final callType = isVideo ? '📹 Video Call शुरू की है — जॉइन करने के लिए ऊपर Video बटन दबाएं!' : '📞 Audio Call शुरू की है — जॉइन करने के लिए ऊपर Call बटन दबाएं!';
     await send(text: callType);
-    final url = Uri.parse('https://jit.si{isVideo ? '' : '#config.startWithVideoMuted=true'}');
+    final suffix = isVideo ? '' : '#config.startWithVideoMuted=true';
+    final url = Uri.parse('https://jit.si_' + room + suffix);
     await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
@@ -435,3 +437,4 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 }
+
