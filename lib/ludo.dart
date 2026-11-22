@@ -19,7 +19,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
   bool canMove = false;
   String statusMsg = 'पासा (Roll Dice) फेंकें!';
   Timer? syncTimer;
-  final List<int> safeSpots = List.of();
+  final List<int> safeSpots = List.of({0, 8, 13, 21, 26, 34, 39, 47});
 
   @override
   void initState() {
