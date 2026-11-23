@@ -432,12 +432,15 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> startFreeCall(bool isVideo) async {
     try {
+    final p = await SharedPreferences.getInstance();
+   final caller = p.getString('name') ?? 'Dost';
+      
       await http.patch(
         Uri.parse(baseUrl + '/ring_' + widget.friendId + '/active'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'fields': {
-            'callerName': {'stringValue': widget.myName},
+            'callerName': {'stringValue': caller },
             'room': {'stringValue': room},
             'isVideo': {'booleanValue': isVideo},
           }
