@@ -36,6 +36,9 @@ jobs:
           sed -i 's/<\/application>/    <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" \/>\n    <\/application>/' android/app/src/main/AndroidManifest.xml
                  
           flutter pub get
+          printf '\n-keep class org.webrtc.** { *; }\n-keep class com.cloudwebrtc.webrtc.** { *; }\n-dontwarn org.webrtc.**\n' >> android/app/proguard-rules.pro
+          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' android/app/build.gradle.kts || true
+          
           flutter build apk --release --no-shrink
       - name: Upload APK
         uses: actions/upload-artifact@v4
