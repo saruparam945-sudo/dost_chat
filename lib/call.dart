@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
 
 const String callBaseUrl = 'https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/projects/dostchat-e903a/databases/(default)/documents';
 
@@ -21,6 +22,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
   MediaStream? _localStream;
   bool micMuted = false;
   bool connected = false;
+  String callStatus = 'कैमरा और माइक चालू हो रहे हैं...';
   Timer? pollTimer;
 
   @override
@@ -30,14 +32,21 @@ class _NativeCallPageState extends State<NativeCallPage> {
   }
 
   Future<void> _initCall() async {
+    await [Permission.camera, Permission.microphone].request();
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': widget.isVideo ? {'facingMode': 'user'} : false,
-    });
-    _localRenderer.srcObject = _localStream;
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': widget.isVideo ? {'facingMode': 'user'} : false,
+      });
+      _localRenderer.srcObject = _localStream;
+      if (mounted) setState(() => callStatus = 'Ringing... दोस्त के जुड़ने का इंतज़ार');
+    } catch (e) {
+      if (mounted) setState(() => callStatus = 'Permission Error: Settings से Camera/Mic Allow करें');
+      return;
+    }
 
     final config = {
       'iceServers': [
@@ -53,6 +62,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
         setState(() {
           _remoteRenderer.srcObject = event.streams.first;
           connected = true;
+          callStatus = 'Connected (लाइव बात चल रही है)';
         });
       }
     };
@@ -72,7 +82,6 @@ class _NativeCallPageState extends State<NativeCallPage> {
       }
     };
 
-    // चेक करें कि सामने वाले ने पहले ही कॉल (Offer) शुरू कर दी है या हमें शुरू करनी है
     final roomUrl = Uri.parse(callBaseUrl + '/call_' + widget.room + '/signal');
     final checkRes = await http.get(roomUrl);
     if (checkRes.statusCode == 200) {
@@ -93,6 +102,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
             }
           }),
         );
+        if (mounted) setState(() => connected = true);
       } else {
         await _createOffer(roomUrl);
       }
@@ -101,7 +111,6 @@ class _NativeCallPageState extends State<NativeCallPage> {
     }
 
     pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollSignals(roomUrl));
-    if (mounted) setState(() {});
   }
 
   Future<void> _createOffer(Uri roomUrl) async {
@@ -129,6 +138,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
           if (remoteDesc == null) {
             final ans = json.decode(f['answer']['stringValue']);
             await _pc!.setRemoteDescription(RTCSessionDescription(ans['sdp'], ans['type']));
+            if (mounted) setState(() => connected = true);
           }
         }
       }
@@ -184,16 +194,16 @@ class _NativeCallPageState extends State<NativeCallPage> {
                     const SizedBox(height: 18),
                     Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    Text(connected ? 'Connected (बात चल रही है...)' : 'Ringing... दोस्त के जुड़ने का इंतज़ार', style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                    Text(callStatus, style: const TextStyle(color: Colors.white70, fontSize: 15)),
                   ],
                 ),
               ),
-            if (widget.isVideo)
+            if (widget.isVideo && _localStream != null)
               Positioned(
                 top: 20,
                 right: 16,
-                width: 110,
-                height: 155,
+                width: 115,
+                height: 160,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
                   child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
