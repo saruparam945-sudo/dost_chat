@@ -191,98 +191,85 @@ class _LudoGamePageState extends State<LudoGamePage> {
               color: Colors.amber,
               child: Text(myHome == 4 ? '🏆 बधाई हो! आप जीत गए!' : '👑 ' + widget.friendName + ' जीत गया!', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
             ),
-          Expanded(
-  child: Center(
-    child:
-    
-          AspectRatio(
-            aspectRatio: 1,
-            child: Container(
-              margin: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black, width: 2)),
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: 225,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 15),
-                itemBuilder: (_, index) {
-                  final int r = index ~/ 15;
-                  final int c = index % 15;
-                  final cellColor = _getCellColor(r, c);
+                    Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  margin: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black, width: 2)),
+                  child: Table(
+                    children: List.generate(15, (r) {
+                      return TableRow(
+                        children: List.generate(15, (c) {
+                          final cellColor = _getCellColor(r, c);
+                          int greenHomeIdx = -1;
+                          if (r == 10 && c == 1) greenHomeIdx = 0;
+                          if (r == 10 && c == 4) greenHomeIdx = 1;
+                          if (r == 13 && c == 1) greenHomeIdx = 2;
+                          if (r == 13 && c == 4) greenHomeIdx = 3;
 
-                  int greenHomeIdx = -1;
-                  if (r == 10 && c == 1) greenHomeIdx = 0;
-                  if (r == 10 && c == 4) greenHomeIdx = 1;
-                  if (r == 13 && c == 1) greenHomeIdx = 2;
-                  if (r == 13 && c == 4) greenHomeIdx = 3;
+                          int redHomeIdx = -1;
+                          if (r == 1 && c == 1) redHomeIdx = 0;
+                          if (r == 1 && c == 4) redHomeIdx = 1;
+                          if (r == 4 && c == 1) redHomeIdx = 2;
+                          if (r == 4 && c == 4) redHomeIdx = 3;
 
-                  int redHomeIdx = -1;
-                  if (r == 1 && c == 1) redHomeIdx = 0;
-                  if (r == 1 && c == 4) redHomeIdx = 1;
-                  if (r == 4 && c == 1) redHomeIdx = 2;
-                  if (r == 4 && c == 4) redHomeIdx = 3;
+                          int activeGreenIdx = -1;
+                          for (int i = 0; i < 4; i++) {
+                            int p = myTokens[i];
+                            if (p >= 0 && p <= 56 && _gRow(p) == r && _gCol(p) == c) activeGreenIdx = i;
+                          }
 
-                  int activeGreenIdx = -1;
-                  for (int i = 0; i < 4; i++) {
-                    int p = myTokens[i];
-                    if (p >= 0 && p <= 56 && _gRow(p) == r && _gCol(p) == c) activeGreenIdx = i;
-                  }
+                          bool hasRedActive = false;
+                          for (int i = 0; i < 4; i++) {
+                            int p = friendTokens[i];
+                            if (p >= 0 && p <= 56 && _rRow(p) == r && _rCol(p) == c) hasRedActive = true;
+                          }
 
-                  bool hasRedActive = false;
-                  for (int i = 0; i < 4; i++) {
-                    int p = friendTokens[i];
-                    if (p >= 0 && p <= 56 && _rRow(p) == r && _rCol(p) == c) hasRedActive = true;
-                  }
+                          final bool isStar = (r == 8 && c == 2) || (r == 2 && c == 6) || (r == 6 && c == 12) || (r == 12 && c == 8) || (r == 13 && c == 6) || (r == 6 && c == 1) || (r == 1 && c == 8) || (r == 8 && c == 13);
 
-                  final bool isStar = (r == 8 && c == 2) || (r == 2 && c == 6) || (r == 6 && c == 12) || (r == 12 && c == 8) || (r == 13 && c == 6) || (r == 6 && c == 1) || (r == 1 && c == 8) || (r == 8 && c == 13);
-
-                  return GestureDetector(
-                    onTap: () {
-                      if (greenHomeIdx != -1 && myTokens[greenHomeIdx] == -1) _moveToken(greenHomeIdx);
-                      if (activeGreenIdx != -1) _moveToken(activeGreenIdx);
-                    },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: cellColor,
-                        border: (r < 6 && c < 6) || (r < 6 && c > 8) || (r > 8 && c < 6) || (r > 8 && c > 8)
-                            ? null
-                            : Border.all(color: Colors.black26, width: 0.4),
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          if (r == 7 && c == 7) const Text('👑', style: TextStyle(fontSize: 12)),
-                          if (isStar && activeGreenIdx == -1 && !hasRedActive) const Icon(Icons.star_border, size: 12, color: Colors.black45),
-                          if (greenHomeIdx != -1)
-                            Container(
-                              width: 18,
-                              height: 18,
-                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                              child: myTokens[greenHomeIdx] == -1
-                                  ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
-                                  : null,
+                          return GestureDetector(
+                            onTap: () {
+                              if (greenHomeIdx != -1 && myTokens[greenHomeIdx] == -1) _moveToken(greenHomeIdx);
+                              if (activeGreenIdx != -1) _moveToken(activeGreenIdx);
+                            },
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: cellColor,
+                                  border: (r < 6 && c < 6) || (r < 6 && c > 8) || (r > 8 && c < 6) || (r > 8 && c > 8)
+                                      ? null
+                                      : Border.all(color: Colors.black26, width: 0.4),
+                                ),
+                                child: Center(
+                                  child: activeGreenIdx != -1
+                                      ? Container(width: 14, height: 14, decoration: BoxDecoration(color: Colors.green.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
+                                      : hasRedActive
+                                          ? Container(width: 14, height: 14, decoration: BoxDecoration(color: Colors.red.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
+                                          : greenHomeIdx != -1
+                                              ? Container(width: 15, height: 15, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: myTokens[greenHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle)) : null)
+                                              : redHomeIdx != -1
+                                                  ? Container(width: 15, height: 15, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: friendTokens[redHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.shade700, shape: BoxShape.circle)) : null)
+                                                  : (r == 7 && c == 7)
+                                                      ? const Text('👑', style: TextStyle(fontSize: 10))
+                                                      : isStar
+                                                          ? const Icon(Icons.star_border, size: 11, color: Colors.black45)
+                                                          : null,
+                                ),
+                              ),
                             ),
-                          if (redHomeIdx != -1)
-                            Container(
-                              width: 18,
-                              height: 18,
-                              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                              child: friendTokens[redHomeIdx] == -1
-                                  ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.shade700, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
-                                  : null,
-                            ),
-                          if (hasRedActive)
-                            Container(width: 16, height: 16, decoration: BoxDecoration(color: Colors.red.shade700, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5), boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 2)])),
-                          if (activeGreenIdx != -1)
-                            Container(width: 16, height: 16, decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5), boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 2)])),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                          );
+                        }),
+                      );
+                    }),
+                  ),
+                ),
               ),
             ),
           ),
-         )),
+          
     Container(
             padding: const EdgeInsets.all(14),
             decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
