@@ -149,7 +149,12 @@ class _NativeCallPageState extends State<NativeCallPage> {
           final f = d['fields'];
           if (f != null && f['from']?['stringValue'] != widget.myId) {
             final cMap = json.decode(f['data']['stringValue']);
-            await _pc!.addCandidate(RTCIceCandidate(cMap['candidate'], cMap['sdpMid'], cMap['sdpMLineIndex']));
+            await _pc!.addCandidate(RTCIceCandidate(
+              cMap['candidate'].toString(),
+              cMap['sdpMid']?.toString() ?? '0',
+              int.tryParse(cMap['sdpMLineIndex'].toString()) ?? 0,
+            ));
+            
             await http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + d['name'].toString()));
           }
         }
