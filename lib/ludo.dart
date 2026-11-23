@@ -29,7 +29,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
   int _gCol(int p) => int.parse(_gRaw.split(';')[p].split(',')[1]);
   int _rRow(int p) => int.parse(_rRaw.split(';')[p].split(',')[0]);
   int _rCol(int p) => int.parse(_rRaw.split(';')[p].split(',')[1]);
-
+  
   @override
   void initState() {
     super.initState();
@@ -191,6 +191,10 @@ class _LudoGamePageState extends State<LudoGamePage> {
               color: Colors.amber,
               child: Text(myHome == 4 ? '🏆 बधाई हो! आप जीत गए!' : '👑 ' + widget.friendName + ' जीत गया!', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
             ),
+          Expanded(
+  child: Center(
+    child:
+    
           AspectRatio(
             aspectRatio: 1,
             child: Container(
@@ -278,7 +282,8 @@ class _LudoGamePageState extends State<LudoGamePage> {
               ),
             ),
           ),
-          Container(
+         )),
+    Container(
             padding: const EdgeInsets.all(14),
             decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
             child: Row(
