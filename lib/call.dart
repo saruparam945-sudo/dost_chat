@@ -24,6 +24,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
   bool connected = false;
   String callStatus = 'कैमरा और माइक चालू हो रहे हैं...';
   Timer? pollTimer;
+  final Set<String> _addedCandidates = {};
 
   @override
   void initState() {
@@ -32,104 +33,113 @@ class _NativeCallPageState extends State<NativeCallPage> {
   }
 
   Future<void> _initCall() async {
-    await [Permission.camera, Permission.microphone].request();
-    await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
-
     try {
+      await [Permission.camera, Permission.microphone].request();
+      await _localRenderer.initialize();
+      await _remoteRenderer.initialize();
+
       _localStream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
         'video': widget.isVideo ? {'facingMode': 'user'} : false,
       });
       _localRenderer.srcObject = _localStream;
       if (mounted) setState(() => callStatus = 'Ringing... दोस्त के जुड़ने का इंतज़ार');
-    } catch (e) {
-      if (mounted) setState(() => callStatus = 'Permission Error: Settings से Camera/Mic Allow करें');
-      return;
-    }
 
-    final config = {
-      'iceServers': [
-        {'urls': 'stun:stun' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
-        {'urls': 'stun:stun1' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
-        
-      ]
-    };
-    _pc = await createPeerConnection(config);
-    _localStream!.getTracks().forEach((track) => _pc!.addTrack(track, _localStream!));
+      final config = {
+        'iceServers': [
+          {'urls': 'stun:stun' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
+          {'urls': 'stun:stun1' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
+        ]
+      };
+      _pc = await createPeerConnection(config);
+      _localStream!.getTracks().forEach((track) => _pc!.addTrack(track, _localStream!));
 
-    _pc!.onTrack = (RTCTrackEvent event) {
-      if (event.streams.isNotEmpty && mounted) {
-        setState(() {
-          _remoteRenderer.srcObject = event.streams.first;
-          connected = true;
-          callStatus = 'Connected (लाइव बात चल रही है)';
-        });
+      _pc!.onTrack = (RTCTrackEvent event) {
+        if (event.streams.isNotEmpty && mounted) {
+          setState(() {
+            _remoteRenderer.srcObject = event.streams.first;
+            connected = true;
+            callStatus = 'Connected (बात चल रही है)';
+          });
+        }
+      };
+
+      _pc!.onConnectionState = (RTCPeerConnectionState state) {
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected && mounted) {
+          setState(() {
+            connected = true;
+            callStatus = 'Connected (लाइव)';
+          });
+        }
+      };
+
+      _pc!.onIceCandidate = (RTCIceCandidate c) async {
+        if (c.candidate != null) {
+          try {
+            await http.post(
+              Uri.parse(callBaseUrl + '/ice_' + widget.room),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'fields': {
+                  'from': {'stringValue': widget.myId},
+                  'data': {'stringValue': json.encode(c.toMap())},
+                }
+              }),
+            );
+          } catch (_) {}
+        }
+      };
+
+      final roomUrl = Uri.parse(callBaseUrl + '/room_' + widget.room + '/signal');
+      final checkRes = await http.get(roomUrl);
+      bool isCaller = true;
+
+      if (checkRes.statusCode == 200) {
+        final f = json.decode(checkRes.body)['fields'];
+        if (f != null && f['offer'] != null && f['from']?['stringValue'] != widget.myId && f['answer'] == null) {
+          isCaller = false;
+          final offerMap = json.decode(f['offer']['stringValue']);
+          await _pc!.setRemoteDescription(RTCSessionDescription(offerMap['sdp'], offerMap['type']));
+          final answer = await _pc!.createAnswer();
+          await _pc!.setLocalDescription(answer);
+          await http.patch(
+            roomUrl,
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'fields': {
+                'from': {'stringValue': f['from']['stringValue']},
+                'offer': {'stringValue': f['offer']['stringValue']},
+                'answer': {'stringValue': json.encode(answer.toMap())},
+              }
+            }),
+          );
+          if (mounted) setState(() => callStatus = 'Connecting...');
+        }
       }
-    };
 
-    _pc!.onIceCandidate = (RTCIceCandidate c) async {
-      if (c.candidate != null) {
-        await http.post(
-          Uri.parse(callBaseUrl + '/call_' + widget.room + '_ice'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'fields': {
-              'from': {'stringValue': widget.myId},
-              'data': {'stringValue': json.encode(c.toMap())},
-            }
-          }),
-        );
-      }
-    };
-
-    final roomUrl = Uri.parse(callBaseUrl + '/call_' + widget.room + '/signal');
-    final checkRes = await http.get(roomUrl);
-    if (checkRes.statusCode == 200) {
-      final f = json.decode(checkRes.body)['fields'];
-      if (f != null && f['offer'] != null && f['from']?['stringValue'] != widget.myId) {
-        final offerMap = json.decode(f['offer']['stringValue']);
-        await _pc!.setRemoteDescription(RTCSessionDescription(offerMap['sdp'], offerMap['type']));
-        final answer = await _pc!.createAnswer();
-        await _pc!.setLocalDescription(answer);
+      if (isCaller) {
+        final offer = await _pc!.createOffer();
+        await _pc!.setLocalDescription(offer);
         await http.patch(
           roomUrl,
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             'fields': {
-              'from': {'stringValue': f['from']['stringValue']},
-              'offer': {'stringValue': f['offer']['stringValue']},
-              'answer': {'stringValue': json.encode(answer.toMap())},
+              'from': {'stringValue': widget.myId},
+              'offer': {'stringValue': json.encode(offer.toMap())},
             }
           }),
         );
-        if (mounted) setState(() => connected = true);
-      } else {
-        await _createOffer(roomUrl);
       }
-    } else {
-      await _createOffer(roomUrl);
+
+      pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollSignals(roomUrl));
+    } catch (e) {
+      if (mounted) setState(() => callStatus = 'Error: ' + e.toString());
     }
-
-    pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollSignals(roomUrl));
-  }
-
-  Future<void> _createOffer(Uri roomUrl) async {
-    final offer = await _pc!.createOffer();
-    await _pc!.setLocalDescription(offer);
-    await http.patch(
-      roomUrl,
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'fields': {
-          'from': {'stringValue': widget.myId},
-          'offer': {'stringValue': json.encode(offer.toMap())},
-        }
-      }),
-    );
   }
 
   Future<void> _pollSignals(Uri roomUrl) async {
+    if (_pc == null) return;
     try {
       final res = await http.get(roomUrl);
       if (res.statusCode == 200) {
@@ -139,23 +149,28 @@ class _NativeCallPageState extends State<NativeCallPage> {
           if (remoteDesc == null) {
             final ans = json.decode(f['answer']['stringValue']);
             await _pc!.setRemoteDescription(RTCSessionDescription(ans['sdp'], ans['type']));
-            if (mounted) setState(() => connected = true);
+            if (mounted) setState(() => callStatus = 'Connecting...');
           }
         }
       }
-      final iceRes = await http.get(Uri.parse(callBaseUrl + '/call_' + widget.room + '_ice'));
+      final iceRes = await http.get(Uri.parse(callBaseUrl + '/ice_' + widget.room));
       if (iceRes.statusCode == 200) {
         for (var d in (json.decode(iceRes.body)['documents'] as List? ?? [])) {
+          final docName = d['name'].toString();
+          if (_addedCandidates.contains(docName)) continue;
           final f = d['fields'];
           if (f != null && f['from']?['stringValue'] != widget.myId) {
-            final cMap = json.decode(f['data']['stringValue']);
-            await _pc!.addCandidate(RTCIceCandidate(
-              cMap['candidate'].toString(),
-              cMap['sdpMid']?.toString() ?? '0',
-              int.tryParse(cMap['sdpMLineIndex'].toString()) ?? 0,
-            ));
-            
-            await http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + d['name'].toString()));
+            final remoteDesc = await _pc!.getRemoteDescription();
+            if (remoteDesc != null) {
+              _addedCandidates.add(docName);
+              final cMap = json.decode(f['data']['stringValue']);
+              await _pc!.addCandidate(RTCIceCandidate(
+                cMap['candidate'].toString(),
+                cMap['sdpMid']?.toString() ?? '0',
+                int.tryParse(cMap['sdpMLineIndex'].toString()) ?? 0,
+              ));
+              http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + docName));
+            }
           }
         }
       }
@@ -164,7 +179,9 @@ class _NativeCallPageState extends State<NativeCallPage> {
 
   Future<void> _endCall() async {
     pollTimer?.cancel();
-    await http.delete(Uri.parse(callBaseUrl + '/call_' + widget.room + '/signal'));
+    try {
+      await http.delete(Uri.parse(callBaseUrl + '/room_' + widget.room + '/signal'));
+    } catch (_) {}
     _localStream?.getTracks().forEach((t) => t.stop());
     await _pc?.close();
     await _localRenderer.dispose();
@@ -200,7 +217,10 @@ class _NativeCallPageState extends State<NativeCallPage> {
                     const SizedBox(height: 18),
                     Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    Text(callStatus, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(callStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                    ),
                   ],
                 ),
               ),
@@ -240,7 +260,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   ),
                   if (widget.isVideo)
                     CircleAvatar(
-                      radius: 28,
+                                            radius: 28,
                       backgroundColor: Colors.white24,
                       child: IconButton(
                         icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 28),
