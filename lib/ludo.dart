@@ -278,7 +278,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(child: Text(statusMsg, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 13))),
+                Flexible(child: Text(statusMsg, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 13))),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
                   onPressed: won ? _resetGame : _rollDice,
