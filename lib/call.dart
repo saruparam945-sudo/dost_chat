@@ -50,8 +50,9 @@ class _NativeCallPageState extends State<NativeCallPage> {
 
     final config = {
       'iceServers': [
-        {'urls': 'stun:://google.com'},
-        {'urls': 'stun:://google.com'},
+        {'urls': 'stun:stun' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
+        {'urls': 'stun:stun1' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
+        
       ]
     };
     _pc = await createPeerConnection(config);
