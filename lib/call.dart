@@ -51,7 +51,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
     _pc!.onTrack = (RTCTrackEvent event) {
       if (event.streams.isNotEmpty && mounted) {
         setState(() {
-          _remoteRenderer.srcObject = event.streams[0];
+          _remoteRenderer.srcObject = event.streams.first;
           connected = true;
         });
       }
@@ -228,7 +228,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                       backgroundColor: Colors.white24,
                       child: IconButton(
                         icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 28),
-                        onPressed: () => Helper.switchCamera(_localStream!.getVideoTracks()[0]),
+                        onPressed: () => Helper.switchCamera(_localStream!.getVideoTracks().first),
                       ),
                     ),
                 ],
