@@ -398,11 +398,10 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> startFreeCall(bool isVideo) async {
     final callType = isVideo ? '📹 Video Call शुरू की है — जॉइन करने के लिए ऊपर Video बटन दबाएं!' : '📞 Audio Call शुरू की है — जॉइन करने के लिए ऊपर Call बटन दबाएं!';
     await send(text: callType);
-    final suffix = isVideo ? '' : '#config.startWithVideoMuted=true';
-  
-    final url = Uri.parse('https://meet' + '.' + 'jit' + '.' + 'si/DostChat_' + room + suffix);
+        final modeParam = isVideo ? '&webcam&autostart' : '&novideo&autostart';
+    final url = Uri.parse('https://vdo' + '.' + 'ninja/?room=DostChat_' + room + modeParam);
+    await launchUrl(url, mode: LaunchMode.inAppWebView);
     
-    await launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
   Future<void> blockUser() async {
