@@ -1,5 +1,6 @@
 import 'ludo.dart';
 import 'watch.dart';
+import 'call.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -395,13 +396,14 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-    Future<void> startFreeCall(bool isVideo) async {
-    final callType = isVideo ? '📹 Video Call शुरू की है — जुड़ने के लिए ऊपर Video बटन दबाएं!' : '📞 Audio Call शुरू की है — जुड़ने के लिए ऊपर Call बटन दबाएं!';
+      Future<void> startFreeCall(bool isVideo) async {
+    final callType = isVideo ? '📹 Video Call आ रही है — जुड़ने के लिए ऊपर Video बटन दबाएं!' : '📞 Audio Call आ रही है — जुड़ने के लिए ऊपर Call बटन दबाएं!';
     await send(text: callType);
-    final shortRoom = 'DC' + room.hashCode.abs().toString();
-    final modeParam = isVideo ? '&webcam&autostart' : '&novideo&autostart';
-    final url = Uri.parse('https://vdo' + '.' + 'ninja/?room=' + shortRoom + modeParam);
-    await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (mounted) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => NativeCallPage(room: room, myId: widget.myId, friendName: widget.friendName, isVideo: isVideo)));
+    }
+      }
+  
     
     
   }
