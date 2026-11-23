@@ -406,7 +406,7 @@ class _ChatPageState extends State<ChatPage> {
   
     
     
-  }
+  
 
   Future<void> blockUser() async {
     final p = await SharedPreferences.getInstance();
