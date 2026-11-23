@@ -402,10 +402,7 @@ class _ChatPageState extends State<ChatPage> {
     final modeParam = isVideo ? '&webcam&autostart' : '&novideo&autostart';
     final url = Uri.parse('https://vdo' + '.' + 'ninja/?room=' + shortRoom + modeParam);
     await launchUrl(url, mode: LaunchMode.externalApplication);
-    }
-  
-    final url = Uri.parse('https://vdo' + '.' + 'ninja/?room=DostChat_' + room + modeParam);
-    await launchUrl(url, mode: LaunchMode.inAppWebView);
+    
     
   }
 
