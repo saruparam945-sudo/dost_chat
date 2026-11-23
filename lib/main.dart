@@ -177,7 +177,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void initState() {
-    super.initState()
+    super.initState();
     _loadBlockedAndUsers();
     Timer.periodic(const Duration(seconds: 2), (_) => _checkIncomingCall());
     
@@ -190,36 +190,7 @@ class _HomePageState extends State<HomePage> {
     
     await loadUsers(reset: true);
   }
-
-  // एक बार में केवल 20 यूज़र्स ही लाएगा (Pagination - 0 लिमिट बर्बादी)
-  Future<void> loadUsers({bool reset = false}) async {
-    if (isLoadingMore) return;
-    setState(() => isLoadingMore = true);
-    if (reset) {
-      users.clear();
-      nextPageToken = null;
-    }
-    try {
-      String url = baseUrl + '/users?pageSize=20';
-      if (nextPageToken != null && nextPageToken!.isNotEmpty) {
-        url += '&pageToken=' + nextPageToken!;
-      }
-      final res = await http.get(Uri.parse(url));
-      if (res.statusCode == 200) {
-        final decoded = json.decode(res.body);
-        final docs = (decoded['documents'] as List?) ?? [];
-        nextPageToken = decoded['nextPageToken'];
-
-        final newBatch = docs
-            .map((d) => d['fields'])
-            .where((f) => f != null && f['uid']?['stringValue'] != widget.myId && !blockedIds.contains(f['uid']?['stringValue']))
-            .map((f) => {
-                  'uid': f['uid']['stringValue'].toString(),
-                  'name': (f['name']?['stringValue'] ?? 'Dost').toString(),
-                  'city': (f['city']?['stringValue'] ?? 'India').toString(),
-                })
-            .toList();
-      bool _isRingingOpen = false;
+  bool _isRingingOpen = false;
   Future<void> _checkIncomingCall() async {
     if (_isRingingOpen || !mounted) return;
     try {
@@ -249,6 +220,36 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (_) {}
   }
+  
+  // एक बार में केवल 20 यूज़र्स ही लाएगा (Pagination - 0 लिमिट बर्बादी)
+  Future<void> loadUsers({bool reset = false}) async {
+    if (isLoadingMore) return;
+    setState(() => isLoadingMore = true);
+    if (reset) {
+      users.clear();
+      nextPageToken = null;
+    }
+    try {
+      String url = baseUrl + '/users?pageSize=20';
+      if (nextPageToken != null && nextPageToken!.isNotEmpty) {
+        url += '&pageToken=' + nextPageToken!;
+      }
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode == 200) {
+        final decoded = json.decode(res.body);
+        final docs = (decoded['documents'] as List?) ?? [];
+        nextPageToken = decoded['nextPageToken'];
+
+        final newBatch = docs
+            .map((d) => d['fields'])
+            .where((f) => f != null && f['uid']?['stringValue'] != widget.myId && !blockedIds.contains(f['uid']?['stringValue']))
+            .map((f) => {
+                  'uid': f['uid']['stringValue'].toString(),
+                  'name': (f['name']?['stringValue'] ?? 'Dost').toString(),
+                  'city': (f['city']?['stringValue'] ?? 'India').toString(),
+                })
+            .toList();
+      
         setState(() => users.addAll(newBatch));
       }
     } catch (_) {}
@@ -436,7 +437,7 @@ class _ChatPageState extends State<ChatPage> {
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'fields': {
-            'callerName': {'stringValue': myName},
+            'callerName': {'stringValue': widget.myName},
             'room': {'stringValue': room},
             'isVideo': {'booleanValue': isVideo},
           }
