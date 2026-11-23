@@ -191,16 +191,18 @@ class _LudoGamePageState extends State<LudoGamePage> {
               color: Colors.amber,
               child: Text(myHome == 4 ? '🏆 बधाई हो! आप जीत गए!' : '👑 ' + widget.friendName + ' जीत गया!', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
             ),
-                    Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Container(
-                  margin: const EdgeInsets.all(6),
+                        Center(
+            child: Builder(
+              builder: (context) {
+                final double boardSize = MediaQuery.of(context).size.width - 20;
+                final double cellSize = boardSize / 15;
+                return Container(
+                  width: boardSize + 4,
+                  height: boardSize + 4,
                   decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black, width: 2)),
-                  child: Table(
+                  child: Column(
                     children: List.generate(15, (r) {
-                      return TableRow(
+                      return Row(
                         children: List.generate(15, (c) {
                           final cellColor = _getCellColor(r, c);
                           int greenHomeIdx = -1;
@@ -234,30 +236,29 @@ class _LudoGamePageState extends State<LudoGamePage> {
                               if (greenHomeIdx != -1 && myTokens[greenHomeIdx] == -1) _moveToken(greenHomeIdx);
                               if (activeGreenIdx != -1) _moveToken(activeGreenIdx);
                             },
-                            child: AspectRatio(
-                              aspectRatio: 1,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: cellColor,
-                                  border: (r < 6 && c < 6) || (r < 6 && c > 8) || (r > 8 && c < 6) || (r > 8 && c > 8)
-                                      ? null
-                                      : Border.all(color: Colors.black26, width: 0.4),
-                                ),
-                                child: Center(
-                                  child: activeGreenIdx != -1
-                                      ? Container(width: 14, height: 14, decoration: BoxDecoration(color: Colors.green.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
-                                      : hasRedActive
-                                          ? Container(width: 14, height: 14, decoration: BoxDecoration(color: Colors.red.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
-                                          : greenHomeIdx != -1
-                                              ? Container(width: 15, height: 15, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: myTokens[greenHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle)) : null)
-                                              : redHomeIdx != -1
-                                                  ? Container(width: 15, height: 15, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: friendTokens[redHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.shade700, shape: BoxShape.circle)) : null)
-                                                  : (r == 7 && c == 7)
-                                                      ? const Text('👑', style: TextStyle(fontSize: 10))
-                                                      : isStar
-                                                          ? const Icon(Icons.star_border, size: 11, color: Colors.black45)
-                                                          : null,
-                                ),
+                            child: Container(
+                              width: cellSize,
+                              height: cellSize,
+                              decoration: BoxDecoration(
+                                color: cellColor,
+                                border: (r < 6 && c < 6) || (r < 6 && c > 8) || (r > 8 && c < 6) || (r > 8 && c > 8)
+                                    ? null
+                                    : Border.all(color: Colors.black26, width: 0.4),
+                              ),
+                              child: Center(
+                                child: activeGreenIdx != -1
+                                    ? Container(width: cellSize * 0.75, height: cellSize * 0.75, decoration: BoxDecoration(color: Colors.green.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
+                                    : hasRedActive
+                                        ? Container(width: cellSize * 0.75, height: cellSize * 0.75, decoration: BoxDecoration(color: Colors.red.shade800, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))
+                                        : greenHomeIdx != -1
+                                            ? Container(width: cellSize * 0.85, height: cellSize * 0.85, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: myTokens[greenHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.green.shade700, shape: BoxShape.circle)) : null)
+                                            : redHomeIdx != -1
+                                                ? Container(width: cellSize * 0.85, height: cellSize * 0.85, decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: friendTokens[redHomeIdx] == -1 ? Container(margin: const EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.red.shade700, shape: BoxShape.circle)) : null)
+                                                : (r == 7 && c == 7)
+                                                    ? const Text('👑', style: TextStyle(fontSize: 10))
+                                                    : isStar
+                                                        ? const Icon(Icons.star_border, size: 11, color: Colors.black45)
+                                                        : null,
                               ),
                             ),
                           );
@@ -265,8 +266,8 @@ class _LudoGamePageState extends State<LudoGamePage> {
                       );
                     }),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
           
