@@ -171,8 +171,9 @@ class _LudoGamePageState extends State<LudoGamePage> {
         backgroundColor: const Color(0xFF00897B),
         actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _resetGame)],
       ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+         body: SingleChildScrollView(
+     child: Column(
+       
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -289,6 +290,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
           ),
         ],
       ),
+     ),    
     );
   }
 }
