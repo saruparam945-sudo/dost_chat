@@ -177,13 +177,17 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void initState() {
-    super.initState();
+    super.initState()
     _loadBlockedAndUsers();
+    Timer.periodic(const Duration(seconds: 2), (_) => _checkIncomingCall());
+    
   }
 
   Future<void> _loadBlockedAndUsers() async {
     final p = await SharedPreferences.getInstance();
     blockedIds = p.getStringList('blocked') ?? [];
+      
+    
     await loadUsers(reset: true);
   }
 
@@ -215,7 +219,36 @@ class _HomePageState extends State<HomePage> {
                   'city': (f['city']?['stringValue'] ?? 'India').toString(),
                 })
             .toList();
-
+      bool _isRingingOpen = false;
+  Future<void> _checkIncomingCall() async {
+    if (_isRingingOpen || !mounted) return;
+    try {
+      final ringUrl = Uri.parse(baseUrl + '/ring_' + widget.myId + '/active');
+      final res = await http.get(ringUrl);
+      if (res.statusCode == 200) {
+        final f = json.decode(res.body)['fields'];
+        if (f != null && mounted) {
+          _isRingingOpen = true;
+          final callerName = f['callerName']?['stringValue'] ?? 'Dost';
+          final room = f['room']?['stringValue'] ?? '';
+          final isVideo = f['isVideo']?['booleanValue'] ?? true;
+          await http.delete(ringUrl);
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => IncomingCallPopup(
+                callerName: callerName,
+                room: room,
+                myId: widget.myId,
+                isVideo: isVideo,
+              ),
+            ),
+          );
+          _isRingingOpen = false;
+        }
+      }
+    } catch (_) {}
+  }
         setState(() => users.addAll(newBatch));
       }
     } catch (_) {}
@@ -396,13 +429,25 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-      Future<void> startFreeCall(bool isVideo) async {
-    final callType = isVideo ? '📹 Video Call आ रही है — जुड़ने के लिए ऊपर Video बटन दबाएं!' : '📞 Audio Call आ रही है — जुड़ने के लिए ऊपर Call बटन दबाएं!';
-    await send(text: callType);
+  Future<void> startFreeCall(bool isVideo) async {
+    try {
+      await http.patch(
+        Uri.parse(baseUrl + '/ring_' + widget.friendId + '/active'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'fields': {
+            'callerName': {'stringValue': myName},
+            'room': {'stringValue': room},
+            'isVideo': {'booleanValue': isVideo},
+          }
+        }),
+      );
+    } catch (_) {}
     if (mounted) {
       Navigator.push(context, MaterialPageRoute(builder: (_) => NativeCallPage(room: room, myId: widget.myId, friendName: widget.friendName, isVideo: isVideo)));
     }
-      }
+        }
+  
   
     
     
@@ -492,6 +537,74 @@ IconButton(
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+class IncomingCallPopup extends StatelessWidget {
+  final String callerName, room, myId;
+  final bool isVideo;
+  const IncomingCallPopup({super.key, required this.callerName, required this.room, required this.myId, required this.isVideo});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B141A),
+      body: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            Column(
+              children: [
+                const CircleAvatar(radius: 55, backgroundColor: Color(0xFF00897B), child: Icon(Icons.person, size: 65, color: Colors.white)),
+                const SizedBox(height: 20),
+                Text(callerName, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(isVideo ? '📹 Incoming Video Call...' : '📞 Incoming Audio Call...', style: const TextStyle(color: Colors.greenAccent, fontSize: 16)),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 34,
+                      backgroundColor: Colors.red,
+                      child: IconButton(
+                        icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Decline', style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+                Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 34,
+                      backgroundColor: Colors.green,
+                      child: IconButton(
+                        icon: Icon(isVideo ? Icons.videocam : Icons.call, color: Colors.white, size: 32),
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => NativeCallPage(room: room, myId: myId, friendName: callerName, isVideo: isVideo),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Accept', style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
