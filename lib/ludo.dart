@@ -103,9 +103,22 @@ window.sfx = function(type){
 async function startVoice(){
   try{
     ls = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
-    pc = new RTCPeerConnection({iceServers:[{urls:'stun:://google.com'},{urls:'stun:://google.com'}]});
+        pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:://google.com' },
+        { urls: 'stun:openrelay.metered.ca:80' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+      ]
+    });
     ls.getTracks().forEach(t => pc.addTrack(t, ls));
-    pc.ontrack = e => { ra.srcObject = e.streams[0]; ra.play(); };
+    const remoteStream = new MediaStream();
+    ra.srcObject = remoteStream;
+    pc.ontrack = e => {
+      remoteStream.addTrack(e.track);
+      ra.play().catch(()=>{});
+    };
+    
     let cands = [];
     pc.onicecandidate = e => { if(e.candidate) cands.push(e.candidate); };
     if($isCaller){
@@ -160,13 +173,18 @@ startVoice();
               myTokens = p2.length == 4 ? p2 : [-1, -1, -1, -1];
               friendTokens = p1.length == 4 ? p1 : [-1, -1, -1, -1];
             }
-            dice = d;
-            if (lastBy != widget.myId) {
-                          myTurn = true;
-              
+                        dice = d;
+            if (lastBy.isEmpty) {
+              myTurn = (ownerId == widget.myId);
               hasRolled = false;
-              statusMsg = myTurn ? 'आपकी बारी! Dice दबाएं' : widget.friendName + ' की बारी...';
+            } else if (lastBy == widget.myId) {
+              myTurn = (turnId == widget.myId);
+            } else {
+              myTurn = (turnId != lastBy);
+              hasRolled = false;
             }
+            statusMsg = myTurn ? '🟢 आपकी बारी! Dice दबाएं' : '⏳ ' + widget.friendName + ' की बारी...';
+            
           });
         }
       } else if (initial) {
