@@ -72,15 +72,13 @@ class _NativeCallPageState extends State<NativeCallPage> {
     if (mounted) Navigator.pop(context);
   }
 
-  String _buildWhatsAppCallHtml() {
+    String _buildWhatsAppCallHtml() {
     final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final parts = widget.room.split('_');
-    final id1 = parts.length > 1 ? parts.elementAt(1) : widget.myId;
-    final id2 = parts.length > 2 ? parts.elementAt(2) : widget.myId;
     final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final rawRoom = widget.room.replaceAll(widget.myId, '').replaceAll('_', '');
+    final cleanFriend = rawRoom.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final myPeer = safeRoom + '_' + cleanMy;
-    final friendPeer = safeRoom + '_' + cleanFriend;
+    final friendPeer = safeRoom + '_' + (cleanFriend.isEmpty ? cleanMy : cleanFriend);
     final facing = frontCam ? 'user' : 'environment';
     final wantVid = isVideoMode ? 'true' : 'false';
 
@@ -90,13 +88,17 @@ class _NativeCallPageState extends State<NativeCallPage> {
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0b141a;overflow:hidden;width:100vw;height:100vh}
-#remoteVid{width:100vw;height:100vh;object-fit:cover;background:#0b141a}
+video::-webkit-media-controls{display:none !important}
+video::-webkit-media-controls-start-playback-button{display:none !important;-webkit-appearance:none}
+#remoteVid{width:100vw;height:100vh;object-fit:cover;background:#0b141a;opacity:0;transition:opacity .4s}
 #localVid{position:fixed;bottom:105px;right:16px;width:105px;height:150px;object-fit:cover;border-radius:14px;border:2px solid #25d366;z-index:10;background:#111}
 </style></head><body>
 <video id="remoteVid" autoplay playsinline></video>
 <video id="localVid" autoplay playsinline muted></video>
 <script>
 let localStream;
+const rv = document.getElementById('remoteVid');
+rv.onplaying = () => { rv.style.opacity = '1'; };
 async function start(){
   try{
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -108,20 +110,23 @@ async function start(){
     const peer = new Peer('$myPeer');
     peer.on('open', () => {
       setInterval(() => {
-        const call = peer.call('$friendPeer', localStream);
-        if(call) call.on('stream', rs => { document.getElementById('remoteVid').srcObject = rs; });
-      }, 2500);
+        if(!rv.srcObject){
+          const call = peer.call('$friendPeer', localStream);
+          if(call) call.on('stream', rs => { rv.srcObject = rs; rv.play(); });
+        }
+      }, 2000);
     });
     peer.on('call', call => {
       call.answer(localStream);
-      call.on('stream', rs => { document.getElementById('remoteVid').srcObject = rs; });
+      call.on('stream', rs => { rv.srcObject = rs; rv.play(); });
     });
   }catch(e){}
 }
 start();
 </script></body></html>
 ''';
-  }
+    }
+  
 
   Future<void> _initCustomCall() async {
     await [Permission.camera, Permission.microphone].request();
