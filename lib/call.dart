@@ -219,9 +219,20 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   children: [
                     Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black)])),
                     const SizedBox(height: 2),
-                    const Row(
+                                        const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                                          const SizedBox(height: 12),
+                      children: [Icon(Icons.lock, color: Colors.white70, size: 12), SizedBox(width: 4), Text('End-to-end encrypted', style: TextStyle(color: Colors.white70, fontSize: 12, shadows: [Shadow(blurRadius: 6, color: Colors.black)]))],
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 14,
+                right: 12,
+                child: Column(
+                  children: [
+                    const CircleAvatar(radius: 22, backgroundColor: Colors.black54, child: Icon(Icons.person_add, color: Colors.white, size: 20)),
+                    const SizedBox(height: 12),
                     CircleAvatar(
                       radius: 22,
                       backgroundColor: Colors.black54,
@@ -245,6 +256,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   ],
                 ),
               ),
+              
                                 Positioned(
                 bottom: 22,
                 left: 16,
