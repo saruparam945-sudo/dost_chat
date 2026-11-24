@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+
+const String callSyncUrl = 'https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/projects/dostchat-e903a/databases/(default)/documents';
 
 class NativeCallPage extends StatefulWidget {
   final String room, myId, friendName;
@@ -16,43 +20,82 @@ class NativeCallPage extends StatefulWidget {
 class _NativeCallPageState extends State<NativeCallPage> {
   WebViewController? _controller;
   bool micMuted = false;
+  bool frontCam = true;
   Timer? _ringStopTimer;
+  Timer? _endCheckTimer;
 
   @override
   void initState() {
     super.initState();
     FlutterRingtonePlayer().playNotification(looping: true);
-    _ringStopTimer = Timer(const Duration(seconds: 12), () {
-      FlutterRingtonePlayer().stop();
-    });
+    _ringStopTimer = Timer(const Duration(seconds: 10), () => FlutterRingtonePlayer().stop());
+    _clearOldEndSignal();
     _initCustomCall();
+    _endCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) => _checkRemoteHangup());
   }
 
   @override
   void dispose() {
     _ringStopTimer?.cancel();
+    _endCheckTimer?.cancel();
     FlutterRingtonePlayer().stop();
     super.dispose();
   }
 
+  Future<void> _clearOldEndSignal() async {
+    try { await http.delete(Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state')); } catch (_) {}
+  }
+
+  Future<void> _checkRemoteHangup() async {
+    try {
+      final res = await http.get(Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state'));
+      if (res.statusCode == 200 && mounted) {
+        await _clearOldEndSignal();
+        FlutterRingtonePlayer().stop();
+        Navigator.pop(context);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _hangupAndNotify() async {
+    FlutterRingtonePlayer().stop();
+    try {
+      await http.patch(
+        Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'fields': {'ended': {'booleanValue': true}}}),
+      );
+    } catch (_) {}
+    if (mounted) Navigator.pop(context);
+  }
+
+  String _getCallUrl() {
+    final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final parts = widget.room.split('_');
+    final id1 = parts.length > 1 ? parts[1] : widget.myId;
+    final id2 = parts.length > 2 ? parts[2] : widget.myId;
+    final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final camParam = widget.isVideo ? (frontCam ? '&webcam&front&quality=1' : '&webcam&back&quality=1') : '&novideo';
+    return 'https://vdo' + '.' + 'ninja/?room=' + safeRoom +
+        '&push=' + safeRoom + '_' + cleanMy +
+        '&view=' + safeRoom + '_' + cleanFriend +
+        camParam + '&autostart&cleanoutput&noheader&nofooter&fullscreen&transparent';
+  }
+
   Future<void> _initCustomCall() async {
     await [Permission.camera, Permission.microphone].request();
-    final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final pushId = safeRoom + '_' + widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final media = widget.isVideo ? '&webcam&quality=1' : '&novideo';
-    final url = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom + '&push=' + pushId + media + '&autostart&cleanoutput&noheader&nofooter&fullscreen&transparent';
-
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0B141A))
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            Future.delayed(const Duration(seconds: 3), () => FlutterRingtonePlayer().stop());
+            Future.delayed(const Duration(seconds: 2), () => FlutterRingtonePlayer().stop());
           },
         ),
       )
-      ..loadRequest(Uri.parse(url));
+      ..loadRequest(Uri.parse(_getCallUrl()));
 
     if (ctrl.platform is AndroidWebViewController) {
       final androidCtrl = ctrl.platform as AndroidWebViewController;
@@ -119,12 +162,21 @@ class _NativeCallPageState extends State<NativeCallPage> {
                     backgroundColor: Colors.red,
                     child: IconButton(
                       icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
-                      onPressed: () {
-                        FlutterRingtonePlayer().stop();
-                        Navigator.pop(context);
-                      },
+                      onPressed: _hangupAndNotify,
                     ),
                   ),
+                  if (widget.isVideo)
+                    CircleAvatar(
+                      radius: 28,
+                      backgroundColor: Colors.white24,
+                      child: IconButton(
+                        icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 28),
+                        onPressed: () {
+                          setState(() => frontCam = !frontCam);
+                          _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                        },
+                      ),
+                    ),
                 ],
               ),
             ),
