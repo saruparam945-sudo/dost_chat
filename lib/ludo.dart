@@ -75,17 +75,31 @@ bool micMuted = false;
     Future<void> _initVoiceRoom() async {
     await [Permission.microphone].request();
     final safeRoom = 'ludo_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final parts = widget.room.split('_');
-    final id1 = parts.length > 1 ? parts.elementAt(1) : widget.myId;
-    final id2 = parts.length > 2 ? parts.elementAt(2) : widget.myId;
-      
     final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final url = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom +
-        '&push=' + safeRoom + '_' + cleanMy +
-        '&view=' + safeRoom + '_' + cleanFriend +
-        '&novideo&autostart&cleanoutput';
-    final ctrl = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..loadRequest(Uri.parse(url));
+    final rawRoom = widget.room.replaceAll(widget.myId, '').replaceAll('_', '');
+    final cleanFriend = rawRoom.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final myPeer = safeRoom + '_' + cleanMy;
+    final friendPeer = safeRoom + '_' + (cleanFriend.isEmpty ? cleanMy : cleanFriend);
+    final html = '''
+<!DOCTYPE html><html><head><script src="https://unpkg.com"></script></head><body>
+<audio id="ra" autoplay></audio>
+<script>
+let ls;
+const ra = document.getElementById('ra');
+navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
+  ls=s;
+  const p=new Peer('$myPeer');
+  p.on('open',()=>setInterval(()=>{
+    if(!ra.srcObject){
+      const c=p.call('$friendPeer',ls);
+      if(c)c.on('stream',rs=>{ra.srcObject=rs;ra.play();});
+    }
+  },2000));
+  p.on('call',c=>{c.answer(ls);c.on('stream',rs=>{ra.srcObject=rs;ra.play();});});
+});
+</script></body></html>
+''';
+    final ctrl = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..loadHtmlString(html, baseUrl: 'https://dostchat.app');
     if (ctrl.platform is AndroidWebViewController) {
       final ac = ctrl.platform as AndroidWebViewController;
       await ac.setMediaPlaybackRequiresUserGesture(false);
@@ -118,7 +132,8 @@ bool micMuted = false;
             }
             dice = d;
             if (lastBy != widget.myId) {
-              myTurn = (turnId == widget.myId || turnId.isEmpty);
+                          myTurn = true;
+              
               hasRolled = false;
               statusMsg = myTurn ? 'आपकी बारी! Dice दबाएं' : widget.friendName + ' की बारी...';
             }
