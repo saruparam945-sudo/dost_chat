@@ -24,8 +24,11 @@ class _NativeCallPageState extends State<NativeCallPage> {
   bool speakerOn = true;
   bool frontCam = true;
   bool beautyFilter = false;
+  bool connected = false;
+  int callSeconds = 0;
   Timer? _ringStopTimer;
   Timer? _endCheckTimer;
+  Timer? _durationTimer;
   final int _callStartTime = DateTime.now().millisecondsSinceEpoch;
 
   @override
@@ -42,8 +45,15 @@ class _NativeCallPageState extends State<NativeCallPage> {
   void dispose() {
     _ringStopTimer?.cancel();
     _endCheckTimer?.cancel();
+    _durationTimer?.cancel();
     FlutterRingtonePlayer().stop();
     super.dispose();
+  }
+
+  String _formatTimer(int sec) {
+    final m = (sec ~/ 60).toString().padLeft(2, '0');
+    final s = (sec % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   Future<void> _checkRemoteHangup() async {
@@ -68,71 +78,138 @@ class _NativeCallPageState extends State<NativeCallPage> {
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'fields': {'endedAt': {'integerValue': DateTime.now().millisecondsSinceEpoch.toString()}}}),
       );
+      await http.delete(Uri.parse(callSyncUrl + '/webrtc_' + widget.room + '/signal'));
     } catch (_) {}
     if (mounted) Navigator.pop(context);
   }
 
-    String _buildWhatsAppCallHtml() {
-    final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final rawRoom = widget.room.replaceAll(widget.myId, '').replaceAll('_', '');
-    final cleanFriend = rawRoom.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final myPeer = safeRoom + '_' + cleanMy;
-    final friendPeer = safeRoom + '_' + (cleanFriend.isEmpty ? cleanMy : cleanFriend);
+  String _buildWhatsAppCallHtml() {
     final facing = frontCam ? 'user' : 'environment';
     final wantVid = isVideoMode ? 'true' : 'false';
+    final sigUrl = callSyncUrl + '/webrtc_' + widget.room + '/signal';
+    final isCaller = widget.room.startsWith(widget.myId) ? 'true' : 'false';
 
     return '''
 <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://unpkg.com"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0b141a;overflow:hidden;width:100vw;height:100vh}
 video::-webkit-media-controls{display:none !important}
-video::-webkit-media-controls-start-playback-button{display:none !important;-webkit-appearance:none}
-#remoteVid{width:100vw;height:100vh;object-fit:cover;background:#0b141a;opacity:0;transition:opacity .4s}
-#localVid{position:fixed;bottom:105px;right:16px;width:105px;height:150px;object-fit:cover;border-radius:14px;border:2px solid #25d366;z-index:10;background:#111}
+.big{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;z-index:1;background:#0b141a}
+.small{position:fixed;bottom:108px;right:16px;width:110px;height:155px;object-fit:cover;border-radius:14px;border:2px solid #25d366;z-index:10;background:#111;box-shadow:0 4px 12px rgba(0,0,0,.6)}
 </style></head><body>
-<video id="remoteVid" autoplay playsinline></video>
-<video id="localVid" autoplay playsinline muted></video>
+<video id="remoteVid" class="big" autoplay playsinline></video>
+<video id="localVid" class="small" autoplay playsinline muted onclick="swapVideos()"></video>
+<audio id="remoteAud" autoplay></audio>
 <script>
-let localStream;
+let localStream, pc, swapped = false;
 const rv = document.getElementById('remoteVid');
-rv.onplaying = () => { rv.style.opacity = '1'; };
+const lv = document.getElementById('localVid');
+const ra = document.getElementById('remoteAud');
+
+function swapVideos(){
+  swapped = !swapped;
+  rv.className = swapped ? 'small' : 'big';
+  lv.className = swapped ? 'big' : 'small';
+  rv.onclick = swapped ? swapVideos : null;
+  lv.onclick = swapped ? null : swapVideos;
+}
+
 async function start(){
   try{
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: true,
       video: $wantVid ? {facingMode: '$facing'} : false
     });
-    if($wantVid) document.getElementById('localVid').srcObject = localStream;
-    else document.getElementById('localVid').style.display = 'none';
-    const peer = new Peer('$myPeer');
-    peer.on('open', () => {
-      setInterval(() => {
-        if(!rv.srcObject){
-          const call = peer.call('$friendPeer', localStream);
-          if(call) call.on('stream', rs => { rv.srcObject = rs; rv.play(); });
+    if($wantVid) lv.srcObject = localStream;
+    else lv.style.display = 'none';
+
+    pc = new RTCPeerConnection({iceServers:[{urls:'stun:://google.com'},{urls:'stun:://google.com'}]});
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+    pc.ontrack = e => {
+      rv.srcObject = e.streams[0];
+      ra.srcObject = e.streams[0];
+      rv.play(); ra.play();
+      if(window.CallBridge) CallBridge.postMessage('connected');
+    };
+
+    let cands = [];
+    pc.onicecandidate = e => { if(e.candidate) cands.push(e.candidate); };
+
+    if($isCaller){
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await new Promise(r => setTimeout(r, 1500));
+      await fetch('$sigUrl', {
+        method: 'PATCH',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({fields:{
+          offer:{stringValue: JSON.stringify(pc.localDescription)},
+          cands:{stringValue: JSON.stringify(cands)},
+          ts:{integerValue: String(Date.now())}
+        }})
+      });
+      const poll = setInterval(async () => {
+        const res = await fetch('$sigUrl');
+        if(res.ok){
+          const d = await res.json();
+          const ans = d.fields?.answer?.stringValue;
+          if(ans && !pc.currentRemoteDescription){
+            await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(ans)));
+            const rc = JSON.parse(d.fields?.acands?.stringValue || '[]');
+            for(const c of rc) await pc.addIceCandidate(new RTCIceCandidate(c));
+            clearInterval(poll);
+          }
         }
-      }, 2000);
-    });
-    peer.on('call', call => {
-      call.answer(localStream);
-      call.on('stream', rs => { rv.srcObject = rs; rv.play(); });
-    });
+      }, 1500);
+    } else {
+      const poll = setInterval(async () => {
+        const res = await fetch('$sigUrl');
+        if(res.ok){
+          const d = await res.json();
+          const off = d.fields?.offer?.stringValue;
+          if(off && !pc.currentRemoteDescription){
+            await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(off)));
+            const ans = await pc.createAnswer();
+            await pc.setLocalDescription(ans);
+            await new Promise(r => setTimeout(r, 1500));
+            await fetch('$sigUrl?updateMask.fieldPaths=answer&updateMask.fieldPaths=acands', {
+              method: 'PATCH',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({fields:{
+                answer:{stringValue: JSON.stringify(pc.localDescription)},
+                acands:{stringValue: JSON.stringify(cands)}
+              }})
+            });
+            const rc = JSON.parse(d.fields?.cands?.stringValue || '[]');
+            for(const c of rc) await pc.addIceCandidate(new RTCIceCandidate(c));
+            clearInterval(poll);
+          }
+        }
+      }, 1500);
+    }
   }catch(e){}
 }
 start();
 </script></body></html>
 ''';
-    }
-  
+  }
 
   Future<void> _initCustomCall() async {
     await [Permission.camera, Permission.microphone].request();
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0B141A))
+      ..addJavaScriptChannel('CallBridge', onMessageReceived: (msg) {
+        if (msg.message == 'connected' && !connected && mounted) {
+          FlutterRingtonePlayer().stop();
+          setState(() => connected = true);
+          _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+            if (mounted) setState(() => callSeconds++);
+          });
+        }
+      })
       ..loadHtmlString(_buildWhatsAppCallHtml(), baseUrl: 'https://dostchat.app');
 
     if (ctrl.platform is AndroidWebViewController) {
@@ -165,6 +242,7 @@ start();
 
   @override
   Widget build(BuildContext context) {
+    final statusText = connected ? _formatTimer(callSeconds) : 'Calling...';
     return Scaffold(
       backgroundColor: const Color(0xFF0B141A),
       body: SafeArea(
@@ -193,8 +271,8 @@ start();
                           Column(
                             children: [
                               Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 2),
-                              const Row(children: [Icon(Icons.lock, color: Colors.white54, size: 12), SizedBox(width: 4), Text('End-to-end encrypted', style: TextStyle(color: Colors.white54, fontSize: 12))]),
+                              const SizedBox(height: 4),
+                              Text(statusText, style: TextStyle(color: connected ? Colors.greenAccent : Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
                             ],
                           ),
                           const CircleAvatar(backgroundColor: Color(0xFF1F2C34), child: Icon(Icons.person_add, color: Colors.white, size: 20)),
@@ -251,11 +329,8 @@ start();
                 child: Column(
                   children: [
                     Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black)])),
-                    const SizedBox(height: 2),
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [Icon(Icons.lock, color: Colors.white70, size: 12), SizedBox(width: 4), Text('End-to-end encrypted', style: TextStyle(color: Colors.white70, fontSize: 12, shadows: [Shadow(blurRadius: 6, color: Colors.black)]))],
-                    ),
+                    const SizedBox(height: 3),
+                    Text(statusText, style: TextStyle(color: connected ? Colors.greenAccent : Colors.white70, fontSize: 14, fontWeight: FontWeight.bold, shadows: const [Shadow(blurRadius: 6, color: Colors.black)])),
                   ],
                 ),
               ),
@@ -330,10 +405,10 @@ start();
                           },
                         ),
                       ),
-                                            CircleAvatar(
+                      CircleAvatar(
                         radius: 24,
                         backgroundColor: const Color(0xFFE53935),
-                        child: IconButton(icon: const Icon(Icons.call_end, color: Colors.white), onPressed: _hangupAndNotify),
+                                                child: IconButton(icon: const Icon(Icons.call_end, color: Colors.white), onPressed: _hangupAndNotify),
                       ),
                     ],
                   ),
