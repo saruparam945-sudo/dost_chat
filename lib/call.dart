@@ -26,14 +26,14 @@ class _NativeCallPageState extends State<NativeCallPage> {
   bool beautyFilter = false;
   Timer? _ringStopTimer;
   Timer? _endCheckTimer;
+  final int _callStartTime = DateTime.now().millisecondsSinceEpoch;
 
   @override
   void initState() {
     super.initState();
     isVideoMode = widget.isVideo;
     FlutterRingtonePlayer().playNotification(looping: true);
-    _ringStopTimer = Timer(const Duration(seconds: 10), () => FlutterRingtonePlayer().stop());
-    _clearOldEndSignal();
+    _ringStopTimer = Timer(const Duration(seconds: 8), () => FlutterRingtonePlayer().stop());
     _initCustomCall();
     _endCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) => _checkRemoteHangup());
   }
@@ -46,17 +46,16 @@ class _NativeCallPageState extends State<NativeCallPage> {
     super.dispose();
   }
 
-  Future<void> _clearOldEndSignal() async {
-    try { await http.delete(Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state')); } catch (_) {}
-  }
-
   Future<void> _checkRemoteHangup() async {
     try {
       final res = await http.get(Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state'));
       if (res.statusCode == 200 && mounted) {
-        await _clearOldEndSignal();
-        FlutterRingtonePlayer().stop();
-        Navigator.pop(context);
+        final f = json.decode(res.body)['fields'];
+        final endedAt = int.tryParse(f?['endedAt']?['integerValue'] ?? '0') ?? 0;
+        if (endedAt > _callStartTime) {
+          FlutterRingtonePlayer().stop();
+          Navigator.pop(context);
+        }
       }
     } catch (_) {}
   }
@@ -67,25 +66,61 @@ class _NativeCallPageState extends State<NativeCallPage> {
       await http.patch(
         Uri.parse(callSyncUrl + '/hangup_' + widget.room + '/state'),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'fields': {'ended': {'booleanValue': true}}}),
+        body: json.encode({'fields': {'endedAt': {'integerValue': DateTime.now().millisecondsSinceEpoch.toString()}}}),
       );
     } catch (_) {}
     if (mounted) Navigator.pop(context);
   }
 
-  String _getCallUrl() {
+  String _buildWhatsAppCallHtml() {
     final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final parts = widget.room.split('_');
     final id1 = parts.length > 1 ? parts.elementAt(1) : widget.myId;
     final id2 = parts.length > 2 ? parts.elementAt(2) : widget.myId;
-    
     final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final camParam = isVideoMode ? (frontCam ? '&webcam&front&quality=1' : '&webcam&back&quality=1') : '&novideo';
-    return 'https://vdo' + '.' + 'ninja/?room=' + safeRoom +
-        '&push=' + safeRoom + '_' + cleanMy +
-        '&view=' + safeRoom + '_' + cleanFriend +
-        camParam + '&autostart&cleanoutput&noheader&nofooter&fullscreen&transparent';
+    final myPeer = safeRoom + '_' + cleanMy;
+    final friendPeer = safeRoom + '_' + cleanFriend;
+    final facing = frontCam ? 'user' : 'environment';
+    final wantVid = isVideoMode ? 'true' : 'false';
+
+    return '''
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://unpkg.com"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0b141a;overflow:hidden;width:100vw;height:100vh}
+#remoteVid{width:100vw;height:100vh;object-fit:cover;background:#0b141a}
+#localVid{position:fixed;bottom:105px;right:16px;width:105px;height:150px;object-fit:cover;border-radius:14px;border:2px solid #25d366;z-index:10;background:#111}
+</style></head><body>
+<video id="remoteVid" autoplay playsinline></video>
+<video id="localVid" autoplay playsinline muted></video>
+<script>
+let localStream;
+async function start(){
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: $wantVid ? {facingMode: '$facing'} : false
+    });
+    if($wantVid) document.getElementById('localVid').srcObject = localStream;
+    else document.getElementById('localVid').style.display = 'none';
+    const peer = new Peer('$myPeer');
+    peer.on('open', () => {
+      setInterval(() => {
+        const call = peer.call('$friendPeer', localStream);
+        if(call) call.on('stream', rs => { document.getElementById('remoteVid').srcObject = rs; });
+      }, 2500);
+    });
+    peer.on('call', call => {
+      call.answer(localStream);
+      call.on('stream', rs => { document.getElementById('remoteVid').srcObject = rs; });
+    });
+  }catch(e){}
+}
+start();
+</script></body></html>
+''';
   }
 
   Future<void> _initCustomCall() async {
@@ -93,14 +128,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0B141A))
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            Future.delayed(const Duration(seconds: 2), () => FlutterRingtonePlayer().stop());
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(_getCallUrl()));
+      ..loadHtmlString(_buildWhatsAppCallHtml(), baseUrl: 'https://dostchat.app');
 
     if (ctrl.platform is AndroidWebViewController) {
       final androidCtrl = ctrl.platform as AndroidWebViewController;
@@ -110,8 +138,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
 
     if (mounted) setState(() => _controller = ctrl);
   }
-
-  Widget _roundBtn(IconData icon, String label, {bool active = false, Color? bg, VoidCallback? onTap}) {
+    Widget _roundBtn(IconData icon, String label, {bool active = false, Color? bg, VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -188,11 +215,11 @@ class _NativeCallPageState extends State<NativeCallPage> {
                               _roundBtn(Icons.volume_up, 'Speaker', active: speakerOn, onTap: () => setState(() => speakerOn = !speakerOn)),
                               _roundBtn(Icons.videocam, 'Video', onTap: () {
                                 setState(() => isVideoMode = true);
-                                _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                                _controller?.loadHtmlString(_buildWhatsAppCallHtml(), baseUrl: 'https://dostchat.app');
                               }),
                               _roundBtn(micMuted ? Icons.mic_off : Icons.mic, 'Mute', active: micMuted, onTap: () {
                                 setState(() => micMuted = !micMuted);
-                                _controller?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
+                                _controller?.runJavaScript("if(localStream) localStream.getAudioTracks().forEach(t=>t.enabled=" + (!micMuted).toString() + ");");
                               }),
                             ],
                           ),
@@ -220,7 +247,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   children: [
                     Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black)])),
                     const SizedBox(height: 2),
-                                        const Row(
+                    const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [Icon(Icons.lock, color: Colors.white70, size: 12), SizedBox(width: 4), Text('End-to-end encrypted', style: TextStyle(color: Colors.white70, fontSize: 12, shadows: [Shadow(blurRadius: 6, color: Colors.black)]))],
                     ),
@@ -241,7 +268,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                         icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 20),
                         onPressed: () {
                           setState(() => frontCam = !frontCam);
-                          _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                          _controller?.loadHtmlString(_buildWhatsAppCallHtml(), baseUrl: 'https://dostchat.app');
                         },
                       ),
                     ),
@@ -257,8 +284,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   ],
                 ),
               ),
-              
-                                Positioned(
+              Positioned(
                 bottom: 22,
                 left: 16,
                 right: 16,
@@ -276,7 +302,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                           icon: const Icon(Icons.videocam, color: Colors.white),
                           onPressed: () {
                             setState(() => isVideoMode = false);
-                            _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                            _controller?.loadHtmlString(_buildWhatsAppCallHtml(), baseUrl: 'https://dostchat.app');
                           },
                         ),
                       ),
@@ -295,11 +321,11 @@ class _NativeCallPageState extends State<NativeCallPage> {
                           icon: Icon(micMuted ? Icons.mic_off : Icons.mic, color: micMuted ? Colors.black : Colors.white),
                           onPressed: () {
                             setState(() => micMuted = !micMuted);
-                            _controller?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
+                            _controller?.runJavaScript("if(localStream) localStream.getAudioTracks().forEach(t=>t.enabled=" + (!micMuted).toString() + ");");
                           },
                         ),
                       ),
-                      CircleAvatar(
+                                            CircleAvatar(
                         radius: 24,
                         backgroundColor: const Color(0xFFE53935),
                         child: IconButton(icon: const Icon(Icons.call_end, color: Colors.white), onPressed: _hangupAndNotify),
@@ -314,5 +340,4 @@ class _NativeCallPageState extends State<NativeCallPage> {
       ),
     );
   }
-              }
-              
+}
