@@ -10,13 +10,23 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 const String baseUrl = 'https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/projects/dostchat-e903a/databases/(default)/documents';
 
 
 
+final FlutterLocalNotificationsPlugin localNotif = FlutterLocalNotificationsPlugin();
 
-void main() => runApp(const DostChatPro());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  await localNotif.initialize(const InitializationSettings(android: androidInit));
+  await localNotif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+  runApp(const DostChatPro());
+}
+
+
 
 class DostChatPro extends StatelessWidget {
   const DostChatPro({super.key});
@@ -182,6 +192,8 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _loadBlockedAndUsers();
     Timer.periodic(const Duration(seconds: 2), (_) => _checkIncomingCall());
+     Timer.periodic(const Duration(seconds: 2), (_) => _checkInboxMessages());
+    
     
   }
 
@@ -205,6 +217,21 @@ class _HomePageState extends State<HomePage> {
           final callerName = f['callerName']?['stringValue'] ?? 'Dost';
           final room = f['room']?['stringValue'] ?? '';
           final isVideo = f['isVideo']?['booleanValue'] ?? true;
+                    await localNotif.show(
+            999,
+            (isVideo ? '📹 Incoming Video Call: ' : '📞 Incoming Audio Call: ') + callerName,
+            'Call uthane ke liye DostChat kholen',
+            const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'dostchat_call',
+                'DostChat Calls',
+                importance: Importance.max,
+                priority: Priority.high,
+                playSound: true,
+              ),
+            ),
+          );
+          
           await http.delete(ringUrl);
           await Navigator.push(
             context,
@@ -222,6 +249,37 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (_) {}
   }
+    Future<void> _checkInboxMessages() async {
+    try {
+      final inboxUrl = Uri.parse(baseUrl + '/inbox_' + widget.myId);
+      final res = await http.get(inboxUrl);
+      if (res.statusCode == 200) {
+        final docs = json.decode(res.body)['documents'] as List? ?? [];
+        for (var d in docs) {
+          final f = d['fields'];
+          if (f != null) {
+            final sender = f['fromName']?['stringValue'] ?? 'Dost';
+            final msg = f['text']?['stringValue'] ?? 'Naya message aaya hai';
+            await localNotif.show(
+              DateTime.now().millisecond,
+              '💬 ' + sender,
+              msg,
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'dostchat_msg',
+                  'DostChat Messages',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                  playSound: true,
+                ),
+              ),
+            );
+            await http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + d['name'].toString()));
+          }
+        }
+      }
+    } catch (_) {}
+    }
   
   // एक बार में केवल 20 यूज़र्स ही लाएगा (Pagination - 0 लिमिट बर्बादी)
   Future<void> loadUsers({bool reset = false}) async {
@@ -421,6 +479,21 @@ class _ChatPageState extends State<ChatPage> {
         }
       }),
     );
+        try {
+      final p = await SharedPreferences.getInstance();
+      final senderName = p.getString('name') ?? 'Dost';
+      await http.post(
+        Uri.parse(baseUrl + '/inbox_' + widget.friendId),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'fields': {
+            'fromName': {'stringValue': senderName},
+            'text': {'stringValue': text.isNotEmpty ? text : '📷 Photo bheji hai'},
+          }
+        }),
+      );
+    } catch (_) {}
+    
   }
 
   Future<void> pickAndSendPhoto() async {
