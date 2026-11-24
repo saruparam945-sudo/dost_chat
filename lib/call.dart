@@ -124,16 +124,26 @@ async function start(){
     if($wantVid) lv.srcObject = localStream;
     else lv.style.display = 'none';
 
-    pc = new RTCPeerConnection({iceServers:[{urls:'stun:://google.com'},{urls:'stun:://google.com'}]});
+        pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:://google.com' },
+        { urls: 'stun:openrelay.metered.ca:80' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+      ]
+    });
     localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
+    const remoteStream = new MediaStream();
+    rv.srcObject = remoteStream;
+    ra.srcObject = remoteStream;
     pc.ontrack = e => {
-      rv.srcObject = e.streams[0];
-      ra.srcObject = e.streams[0];
-      rv.play(); ra.play();
+      remoteStream.addTrack(e.track);
+      rv.play().catch(()=>{});
+      ra.play().catch(()=>{});
       if(window.CallBridge) CallBridge.postMessage('connected');
     };
-
+    
     let cands = [];
     pc.onicecandidate = e => { if(e.candidate) cands.push(e.candidate); };
 
