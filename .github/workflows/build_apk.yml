@@ -38,6 +38,8 @@ jobs:
           flutter pub get
           printf '\n-keep class org.webrtc.** { *; }\n-keep class com.cloudwebrtc.webrtc.** { *; }\n-dontwarn org.webrtc.**\n' >> android/app/proguard-rules.pro
           sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/g' android/app/build.gradle.kts || true
+          sed -i 's/sourceCompatibility = JavaVersion/isCoreLibraryDesugaringEnabled = true\n        sourceCompatibility = JavaVersion/' android/app/build.gradle.kts
+          printf '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n' >> android/app/build.gradle.kts
           
           flutter build apk --release --no-shrink
       - name: Upload APK
