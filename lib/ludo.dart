@@ -245,7 +245,7 @@ startVoice();
       return;
     }
     bool captured = false;
-    _playSound(captured ? 'kill' : 'move');
+    
     if (pos >= 0 && pos <= 50) {
       int myGlobal = pos % 52;
       if (!safeSquares.contains(myGlobal)) {
@@ -258,6 +258,8 @@ startVoice();
         }
       }
     }
+        _playSound(captured ? 'kill' : 'move');
+    
     bool extraTurn = (dice == 6 || captured || pos == 56);
     setState(() {
       myTokens[idx] = pos;
