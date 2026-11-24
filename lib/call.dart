@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -19,26 +18,14 @@ class _NativeCallPageState extends State<NativeCallPage> {
   @override
   void initState() {
     super.initState();
-    FlutterRingtonePlayer().playRingtone(looping: true, asAlarm: false);
     _setupInAppCall();
-  }
-
-  @override
-  void dispose() {
-    FlutterRingtonePlayer().stop();
-    super.dispose();
   }
 
   Future<void> _setupInAppCall() async {
     await [Permission.camera, Permission.microphone].request();
-    final safeRoom = 'DostChatLive' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final videoFlag = widget.isVideo ? 'false' : 'true';
-    final callUrl = 'https://meet' + '.' + 'jit' + '.' + 'si/' + safeRoom +
-        '#config.prejoinConfig.enabled=false&config.prejoinPageEnabled=false' +
-        '&config.startWithVideoMuted=' + videoFlag +
-        '&config.disableDeepLinking=true&config.toolbarButtons=[]' +
-        '&interfaceConfig.SHOW_JITSI_WATERMARK=false&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false' +
-        '&userInfo.displayName="Dost"';
+    final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final mediaParam = widget.isVideo ? '&webcam&autostart' : '&novideo&autostart';
+    final callUrl = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom + mediaParam + '&cleanoutput&noheader&nofooter';
 
     final ctrl = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -46,7 +33,6 @@ class _NativeCallPageState extends State<NativeCallPage> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
-            FlutterRingtonePlayer().stop();
             if (mounted) setState(() => loading = false);
           },
         ),
@@ -83,11 +69,20 @@ class _NativeCallPageState extends State<NativeCallPage> {
                       const SizedBox(height: 18),
                       Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      const Text('Ringing... कॉल जुड़ रही है', style: TextStyle(color: Colors.greenAccent, fontSize: 16)),
+                      const Text('Calling... कॉल जुड़ रही है', style: TextStyle(color: Colors.greenAccent, fontSize: 16)),
                     ],
                   ),
                 ),
               ),
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                child: Text((widget.isVideo ? '📹 ' : '📞 ') + widget.friendName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
             Positioned(
               bottom: 28,
               left: 0,
@@ -98,10 +93,7 @@ class _NativeCallPageState extends State<NativeCallPage> {
                   backgroundColor: Colors.red,
                   child: IconButton(
                     icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
-                    onPressed: () {
-                      FlutterRingtonePlayer().stop();
-                      Navigator.pop(context);
-                    },
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ),
               ),
@@ -112,3 +104,4 @@ class _NativeCallPageState extends State<NativeCallPage> {
     );
   }
 }
+
