@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+
 
 import 'package:permission_handler/permission_handler.dart';
 
@@ -23,6 +27,9 @@ class _LudoGamePageState extends State<LudoGamePage> {
   bool hasRolled = false;
   String statusMsg = 'आपकी बारी! Dice दबाएं';
   Timer? pollTimer;
+  WebViewController? _voiceWeb;
+bool micMuted = false;
+  
 
   
 
@@ -52,7 +59,8 @@ class _LudoGamePageState extends State<LudoGamePage> {
   void initState() {
     super.initState();
     _syncState(initial: true);
-  
+   _initVoiceRoom();
+    
     pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _syncState());
   }
 
@@ -62,7 +70,20 @@ class _LudoGamePageState extends State<LudoGamePage> {
     
     super.dispose();
   }
-
+  Future<void> _initVoiceRoom() async {
+    await [Permission.microphone].request();
+    final safeRoom = 'ludo_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final pushId = safeRoom + '_' + widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final url = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom + '&push=' + pushId + '&novideo&autostart&cleanoutput';
+    final ctrl = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..loadRequest(Uri.parse(url));
+    if (ctrl.platform is AndroidWebViewController) {
+      final ac = ctrl.platform as AndroidWebViewController;
+      await ac.setMediaPlaybackRequiresUserGesture(false);
+      await ac.setOnPlatformPermissionRequest((r) => r.grant());
+    }
+    if (mounted) setState(() => _voiceWeb = ctrl);
+  }
+  
   Future<void> _syncState({bool initial = false}) async {
     try {
       final url = Uri.parse(ludoBaseUrl + '/ludo4_' + widget.room + '/state');
@@ -220,13 +241,28 @@ class _LudoGamePageState extends State<LudoGamePage> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-                    Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('🟢 आप अंदर: ' + myHome.toString() + '/4', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              Text('🔴 दोस्त अंदर: ' + fHome.toString() + '/4', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
-            ],
+                              Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(14)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('🟢 आप (' + myHome.toString() + '/4)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: micMuted ? Colors.red : Colors.teal, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+                  onPressed: () {
+                    setState(() => micMuted = !micMuted);
+                    _voiceWeb?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
+                  },
+                  icon: Icon(micMuted ? Icons.mic_off : Icons.mic, size: 16),
+                  label: Text(micMuted ? 'Muted' : 'Mic On', style: const TextStyle(fontSize: 12)),
+                ),
+                Text('🔴 दोस्त (' + fHome.toString() + '/4)', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                if (_voiceWeb != null) SizedBox(width: 1, height: 1, child: WebViewWidget(controller: _voiceWeb!)),
+              ],
+            ),
           ),
+          
           
           const SizedBox(height: 10),
           Container(
