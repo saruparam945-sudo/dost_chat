@@ -72,31 +72,60 @@ bool micMuted = false;
     
     super.dispose();
   }
-    Future<void> _initVoiceRoom() async {
+      void _playSound(String type) {
+    _voiceWeb?.runJavaScript("if(window.sfx) sfx('$type');");
+  }
+
+  Future<void> _initVoiceRoom() async {
     await [Permission.microphone].request();
-    final safeRoom = 'ludo_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final rawRoom = widget.room.replaceAll(widget.myId, '').replaceAll('_', '');
-    final cleanFriend = rawRoom.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final myPeer = safeRoom + '_' + cleanMy;
-    final friendPeer = safeRoom + '_' + (cleanFriend.isEmpty ? cleanMy : cleanFriend);
+    final sigUrl = ludoBaseUrl + '/ludo_rtc_' + widget.room + '/signal';
+    final isCaller = widget.room.startsWith(widget.myId) ? 'true' : 'false';
     final html = '''
-<!DOCTYPE html><html><head><script src="https://unpkg.com"></script></head><body>
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
 <audio id="ra" autoplay></audio>
 <script>
-let ls;
+let ls, pc;
 const ra = document.getElementById('ra');
-navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
-  ls=s;
-  const p=new Peer('$myPeer');
-  p.on('open',()=>setInterval(()=>{
-    if(!ra.srcObject){
-      const c=p.call('$friendPeer',ls);
-      if(c)c.on('stream',rs=>{ra.srcObject=rs;ra.play();});
+const actx = new (window.AudioContext || window.webkitAudioContext)();
+
+window.sfx = function(type){
+  try{
+    if(actx.state === 'suspended') actx.resume();
+    const o = actx.createOscillator();
+    const g = actx.createGain();
+    o.connect(g); g.connect(actx.destination);
+    if(type === 'dice'){ o.type='triangle'; o.frequency.setValueAtTime(520, actx.currentTime); o.frequency.exponentialRampToValueAtTime(880, actx.currentTime+0.12); g.gain.setValueAtTime(0.3, actx.currentTime); o.start(); o.stop(actx.currentTime+0.13); }
+    else if(type === 'kill'){ o.type='sawtooth'; o.frequency.setValueAtTime(300, actx.currentTime); o.frequency.exponentialRampToValueAtTime(90, actx.currentTime+0.35); g.gain.setValueAtTime(0.4, actx.currentTime); o.start(); o.stop(actx.currentTime+0.36); }
+    else { o.type='sine'; o.frequency.setValueAtTime(660, actx.currentTime); o.frequency.exponentialRampToValueAtTime(990, actx.currentTime+0.09); g.gain.setValueAtTime(0.25, actx.currentTime); o.start(); o.stop(actx.currentTime+0.1); }
+  }catch(e){}
+};
+
+async function startVoice(){
+  try{
+    ls = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+    pc = new RTCPeerConnection({iceServers:[{urls:'stun:://google.com'},{urls:'stun:://google.com'}]});
+    ls.getTracks().forEach(t => pc.addTrack(t, ls));
+    pc.ontrack = e => { ra.srcObject = e.streams[0]; ra.play(); };
+    let cands = [];
+    pc.onicecandidate = e => { if(e.candidate) cands.push(e.candidate); };
+    if($isCaller){
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await new Promise(r => setTimeout(r, 1500));
+      await fetch('$sigUrl', {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields:{offer:{stringValue:JSON.stringify(pc.localDescription)},cands:{stringValue:JSON.stringify(cands)}}})});
+      const poll = setInterval(async () => {
+        const res = await fetch('$sigUrl');
+        if(res.ok){ const d = await res.json(); const ans = d.fields?.answer?.stringValue; if(ans && !pc.currentRemoteDescription){ await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(ans))); for(const c of JSON.parse(d.fields?.acands?.stringValue || '[]')) await pc.addIceCandidate(new RTCIceCandidate(c)); clearInterval(poll); } }
+      }, 1500);
+    } else {
+      const poll = setInterval(async () => {
+        const res = await fetch('$sigUrl');
+        if(res.ok){ const d = await res.json(); const off = d.fields?.offer?.stringValue; if(off && !pc.currentRemoteDescription){ await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(off))); const ans = await pc.createAnswer(); await pc.setLocalDescription(ans); await new Promise(r => setTimeout(r, 1500)); await fetch('$sigUrl?updateMask.fieldPaths=answer&updateMask.fieldPaths=acands', {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fields:{answer:{stringValue:JSON.stringify(pc.localDescription)},acands:{stringValue:JSON.stringify(cands)}}})}); for(const c of JSON.parse(d.fields?.cands?.stringValue || '[]')) await pc.addIceCandidate(new RTCIceCandidate(c)); clearInterval(poll); } }
+      }, 1500);
     }
-  },2000));
-  p.on('call',c=>{c.answer(ls);c.on('stream',rs=>{ra.srcObject=rs;ra.play();});});
-});
+  }catch(e){}
+}
+startVoice();
 </script></body></html>
 ''';
     final ctrl = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..loadHtmlString(html, baseUrl: 'https://dostchat.app');
@@ -106,7 +135,8 @@ navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
       await ac.setOnPlatformPermissionRequest((r) => r.grant());
     }
     if (mounted) setState(() => _voiceWeb = ctrl);
-    }
+  }
+  
   
   
   Future<void> _syncState({bool initial = false}) async {
@@ -172,18 +202,21 @@ navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
     } catch (_) {}
   }
 
-  void _rollDice() {
-    if (!myTurn || hasRolled) return;
+    void _rollDice() {
+    if (hasRolled) return;
+          _playSound('dice');
+      
     final rolled = Random().nextInt(6) + 1;
-    bool canMoveAny = false;
-    for (int t in myTokens) {
-      if (t == -1 && rolled == 6) canMoveAny = true;
-      if (t >= 0 && t + rolled <= 56) canMoveAny = true;
+    List<int> movable = [];
+    for (int i = 0; i < 4; i++) {
+      final t = myTokens[i];
+      if (t == -1 && rolled == 6) movable.add(i);
+      if (t >= 0 && t + rolled <= 56) movable.add(i);
     }
     setState(() {
       dice = rolled;
-      if (!canMoveAny) {
-        myTurn = false;
+      myTurn = true;
+      if (movable.isEmpty) {
         hasRolled = false;
         statusMsg = 'Dice ' + rolled.toString() + ' आया, कोई चाल नहीं! दोस्त की बारी';
         _pushState('FRIEND');
@@ -192,7 +225,13 @@ navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
         statusMsg = 'Dice ' + rolled.toString() + ' आया! अपनी हरी गोटी पर टैप करें';
       }
     });
-  }
+    if (movable.length == 1) {
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted && hasRolled) _moveToken(movable.first);
+      });
+    }
+    }
+  
 
   void _moveToken(int idx) {
     if (!myTurn || !hasRolled) return;
@@ -206,6 +245,7 @@ navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>{
       return;
     }
     bool captured = false;
+    _playSound(captured ? 'kill' : 'move');
     if (pos >= 0 && pos <= 50) {
       int myGlobal = pos % 52;
       if (!safeSquares.contains(myGlobal)) {
