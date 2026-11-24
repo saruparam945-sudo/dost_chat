@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -70,11 +72,18 @@ bool micMuted = false;
     
     super.dispose();
   }
-  Future<void> _initVoiceRoom() async {
+    Future<void> _initVoiceRoom() async {
     await [Permission.microphone].request();
     final safeRoom = 'ludo_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final pushId = safeRoom + '_' + widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final url = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom + '&push=' + pushId + '&novideo&autostart&cleanoutput';
+    final parts = widget.room.split('_');
+    final id1 = parts.length > 1 ? parts : widget.myId;
+    final id2 = parts.length > 2 ? parts : widget.myId;
+    final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final url = 'https://vdo' + '.' + 'ninja/?room=' + safeRoom +
+        '&push=' + safeRoom + '_' + cleanMy +
+        '&view=' + safeRoom + '_' + cleanFriend +
+        '&novideo&autostart&cleanoutput';
     final ctrl = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..loadRequest(Uri.parse(url));
     if (ctrl.platform is AndroidWebViewController) {
       final ac = ctrl.platform as AndroidWebViewController;
@@ -82,7 +91,8 @@ bool micMuted = false;
       await ac.setOnPlatformPermissionRequest((r) => r.grant());
     }
     if (mounted) setState(() => _voiceWeb = ctrl);
-  }
+    }
+  
   
   Future<void> _syncState({bool initial = false}) async {
     try {
