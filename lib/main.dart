@@ -3,6 +3,8 @@ import 'watch.dart';
 import 'call.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -545,10 +547,26 @@ IconButton(
     );
   }
 }
-class IncomingCallPopup extends StatelessWidget {
+class IncomingCallPopup extends StatefulWidget {
   final String callerName, room, myId;
   final bool isVideo;
   const IncomingCallPopup({super.key, required this.callerName, required this.room, required this.myId, required this.isVideo});
+  @override
+  State<IncomingCallPopup> createState() => _IncomingCallPopupState();
+}
+
+class _IncomingCallPopupState extends State<IncomingCallPopup> {
+  @override
+  void initState() {
+    super.initState();
+    FlutterRingtonePlayer().playRingtone(looping: true, asAlarm: false);
+  }
+
+  @override
+  void dispose() {
+    FlutterRingtonePlayer().stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -562,9 +580,9 @@ class IncomingCallPopup extends StatelessWidget {
               children: [
                 const CircleAvatar(radius: 55, backgroundColor: Color(0xFF00897B), child: Icon(Icons.person, size: 65, color: Colors.white)),
                 const SizedBox(height: 20),
-                Text(callerName, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                Text(widget.callerName, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                Text(isVideo ? '📹 Incoming Video Call...' : '📞 Incoming Audio Call...', style: const TextStyle(color: Colors.greenAccent, fontSize: 16)),
+                Text(widget.isVideo ? '📹 Incoming Video Call...' : '📞 Incoming Audio Call...', style: const TextStyle(color: Colors.greenAccent, fontSize: 16)),
               ],
             ),
             Row(
@@ -577,7 +595,10 @@ class IncomingCallPopup extends StatelessWidget {
                       backgroundColor: Colors.red,
                       child: IconButton(
                         icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () {
+                          FlutterRingtonePlayer().stop();
+                          Navigator.pop(context);
+                        },
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -590,12 +611,13 @@ class IncomingCallPopup extends StatelessWidget {
                       radius: 34,
                       backgroundColor: Colors.green,
                       child: IconButton(
-                        icon: Icon(isVideo ? Icons.videocam : Icons.call, color: Colors.white, size: 32),
+                        icon: Icon(widget.isVideo ? Icons.videocam : Icons.call, color: Colors.white, size: 32),
                         onPressed: () {
+                          FlutterRingtonePlayer().stop();
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => NativeCallPage(room: room, myId: myId, friendName: callerName, isVideo: isVideo),
+                              builder: (_) => NativeCallPage(room: widget.room, myId: widget.myId, friendName: widget.callerName, isVideo: widget.isVideo),
                             ),
                           );
                         },
