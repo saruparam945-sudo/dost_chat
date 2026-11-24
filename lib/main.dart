@@ -89,30 +89,168 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final nameCtrl = TextEditingController();
+  final passCtrl = TextEditingController();
+  final pinCtrl = TextEditingController();
   final cityCtrl = TextEditingController();
+  bool isRegister = true;
   bool busy = false;
+  String errorMsg = '';
 
-  Future<void> join() async {
-    if (nameCtrl.text.trim().isEmpty) return;
-    setState(() => busy = true);
-    final id = 'u_${DateTime.now().millisecondsSinceEpoch}';
-    final n = nameCtrl.text.trim();
-    final c = cityCtrl.text.trim().isEmpty ? 'India' : cityCtrl.text.trim();
-    try {
-      await http.patch(
-        Uri.parse('$baseUrl/users/$id'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'fields': {'uid': {'stringValue': id}, 'name': {'stringValue': n}, 'city': {'stringValue': c}}}),
-      );
-      final p = await SharedPreferences.getInstance();
-      await p.setString('uid', id);
-      await p.setString('name', n);
-      await p.setString('city', c);
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(myId: id, myName: n, myCity: c)));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+  String _cleanKey(String name) => name.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+
+  Future<void> _submitAuth() async {
+    final rawName = nameCtrl.text.trim();
+    final pass = passCtrl.text.trim();
+    final pin = pinCtrl.text.trim();
+    final city = cityCtrl.text.trim().isEmpty ? 'India' : cityCtrl.text.trim();
+
+    if (rawName.isEmpty || pass.isEmpty) {
+      setState(() => errorMsg = 'कृपया नाम और पासवर्ड दोनों भरें!');
+      return;
     }
-    if (mounted) setState(() => busy = false);
+    if (isRegister && pin.length < 4) {
+      setState(() => errorMsg = 'पासवर्ड रिकवरी के लिए 4 अंकों का Security PIN डालें!');
+      return;
+    }
+
+    setState(() {
+      busy = true;
+      errorMsg = '';
+    });
+
+    try {
+      final key = _cleanKey(rawName);
+      final authUrl = Uri.parse('$baseUrl/accounts/$key');
+      final checkRes = await http.get(authUrl);
+
+      if (isRegister) {
+        if (checkRes.statusCode == 200) {
+          setState(() {
+            busy = false;
+            errorMsg = 'यह नाम पहले से रजिस्टर है! कृपया Login करें या दूसरा नाम चुनें।';
+          });
+          return;
+        }
+        final uid = 'u_${DateTime.now().millisecondsSinceEpoch}';
+        await http.patch(
+          authUrl,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'fields': {
+              'uid': {'stringValue': uid},
+              'name': {'stringValue': rawName},
+              'pass': {'stringValue': pass},
+              'pin': {'stringValue': pin},
+              'city': {'stringValue': city},
+            }
+          }),
+        );
+        await http.patch(
+          Uri.parse('$baseUrl/users/$uid'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'fields': {
+              'uid': {'stringValue': uid},
+              'name': {'stringValue': rawName},
+              'city': {'stringValue': city},
+            }
+          }),
+        );
+        await _saveAndGo(uid, rawName, city);
+      } else {
+        if (checkRes.statusCode != 200) {
+          setState(() {
+            busy = false;
+            errorMsg = 'इस नाम से कोई अकाउंट नहीं मिला! कृपया पहले Register करें।';
+          });
+          return;
+        }
+        final f = json.decode(checkRes.body)['fields'];
+        final savedPass = f['pass']?['stringValue'] ?? '';
+        if (savedPass != pass) {
+          setState(() {
+            busy = false;
+            errorMsg = 'गलत पासवर्ड! कृपया सही पासवर्ड डालें या Forgot Password दबाएं।';
+          });
+          return;
+        }
+        final uid = f['uid']?['stringValue'] ?? 'u_${DateTime.now().millisecondsSinceEpoch}';
+        final savedName = f['name']?['stringValue'] ?? rawName;
+        final savedCity = f['city']?['stringValue'] ?? 'India';
+        await _saveAndGo(uid, savedName, savedCity);
+      }
+    } catch (e) {
+      setState(() {
+        busy = false;
+        errorMsg = 'नेटवर्क त्रुटि! कृपया इंटरनेट चेक करें।';
+      });
+    }
+  }
+
+  Future<void> _saveAndGo(String uid, String name, String city) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('uid', uid);
+    await p.setString('name', name);
+    await p.setString('city', city);
+    if (mounted) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(myId: uid, myName: name, myCity: city)));
+    }
+  }
+    void _showForgotDialog() {
+    final fName = TextEditingController(text: nameCtrl.text);
+    final fPin = TextEditingController();
+    final fNewPass = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🔑 Forgot Password'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: fName, decoration: const InputDecoration(labelText: 'आपका रजिस्टर्ड नाम')),
+            const SizedBox(height: 8),
+            TextField(controller: fPin, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '4 अंकों का Security PIN')),
+            const SizedBox(height: 8),
+            TextField(controller: fNewPass, obscureText: true, decoration: const InputDecoration(labelText: 'नया पासवर्ड डालें')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+          ElevatedButton(
+            onPressed: () async {
+              final key = _cleanKey(fName.text);
+              final url = Uri.parse('$baseUrl/accounts/$key');
+              final res = await http.get(url);
+              if (res.statusCode == 200) {
+                final f = json.decode(res.body)['fields'];
+                if ((f['pin']?['stringValue'] ?? '') == fPin.text.trim() && fNewPass.text.trim().isNotEmpty) {
+                  await http.patch(
+                    url,
+                    headers: {'Content-Type': 'application/json'},
+                    body: json.encode({
+                      'fields': {
+                        'uid': f['uid'],
+                        'name': f['name'],
+                        'pass': {'stringValue': fNewPass.text.trim()},
+                        'pin': f['pin'],
+                        'city': f['city'],
+                      }
+                    }),
+                  );
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) setState(() => errorMsg = '✅ पासवर्ड बदल गया! अब नए पासवर्ड से Login करें।');
+                  return;
+                }
+              }
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('❌ नाम या Security PIN गलत है!')));
+              }
+            },
+            child: const Text('पासवर्ड बदलें'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -120,50 +258,65 @@ class _LoginPageState extends State<LoginPage> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: const Color(0xFFE0F2F1), borderRadius: BorderRadius.circular(24)),
-                child: const Icon(Icons.forum_rounded, size: 64, color: Color(0xFF00897B)),
-              ),
-              const SizedBox(height: 20),
-              const Text('DostChat', style: TextStyle(color: Color(0xFF1A1A1A), fontSize: 30, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              const Text('नए दोस्त बनाएं • फ्री कॉल और चैट करें', style: TextStyle(color: Colors.grey, fontSize: 15)),
-              const SizedBox(height: 32),
-              TextField(
-                controller: nameCtrl,
-                decoration: InputDecoration(
-                  labelText: 'आपका शुभ नाम',
-                  prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF00897B)),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
               const SizedBox(height: 16),
-              TextField(
-                controller: cityCtrl,
-                decoration: InputDecoration(
-                  labelText: 'आपका शहर (जैसे: जयपुर, दिल्ली)',
-                  prefixIcon: const Icon(Icons.location_on_outlined, color: Color(0xFF00897B)),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                ),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(color: const Color(0xFFE0F2F1), borderRadius: BorderRadius.circular(24)),
+                child: const Icon(Icons.forum_rounded, size: 54, color: Color(0xFF00897B)),
               ),
-              const SizedBox(height: 26),
+              const SizedBox(height: 14),
+              const Text('DostChat', style: TextStyle(color: Color(0xFF1A1A1A), fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: isRegister ? const Color(0xFF00897B) : Colors.grey.shade200, foregroundColor: isRegister ? Colors.white : Colors.black87),
+                      onPressed: () => setState(() { isRegister = true; errorMsg = ''; }),
+                      child: const Text('Register (नया)'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: !isRegister ? const Color(0xFF00897B) : Colors.grey.shade200, foregroundColor: !isRegister ? Colors.white : Colors.black87),
+                      onPressed: () => setState(() { isRegister = false; errorMsg = ''; }),
+                      child: const Text('Login (पुराना)'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: 'आपका यूज़र नाम', prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF00897B)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)))),
+              const SizedBox(height: 12),
+              TextField(controller: passCtrl, obscureText: true, decoration: InputDecoration(labelText: 'पासवर्ड', prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF00897B)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)))),
+              if (isRegister) ...[
+                const SizedBox(height: 12),
+                TextField(controller: pinCtrl, keyboardType: TextInputType.number, maxLength: 4, decoration: InputDecoration(labelText: '4 अंकों का Security PIN (Forgot Password के लिए)', prefixIcon: const Icon(Icons.security, color: Color(0xFF00897B)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)))),
+                const SizedBox(height: 8),
+                TextField(controller: cityCtrl, decoration: InputDecoration(labelText: 'आपका शहर (जैसे: जयपुर, दिल्ली)', prefixIcon: const Icon(Icons.location_on_outlined, color: Color(0xFF00897B)), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)))),
+              ],
+              if (!isRegister)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(onPressed: _showForgotDialog, child: const Text('Forgot Password?', style: TextStyle(color: Color(0xFF00897B), fontWeight: FontWeight.bold))),
+                ),
+              if (errorMsg.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(errorMsg, textAlign: TextAlign.center, style: TextStyle(color: errorMsg.startsWith('✅') ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
+                ),
+              const SizedBox(height: 20),
               busy
                   ? const CircularProgressIndicator(color: Color(0xFF00897B))
                   : ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00897B),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(double.infinity, 52),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      onPressed: join,
-                      child: const Text('आगे बढ़ें (100% Free)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00897B), foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                      onPressed: _submitAuth,
+                      child: Text(isRegister ? 'Register करें (नया अकाउंट)' : 'Login करें (पुराना अकाउंट)', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
             ],
           ),
@@ -172,6 +325,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
+
 
 class HomePage extends StatefulWidget {
   final String myId, myName, myCity;
