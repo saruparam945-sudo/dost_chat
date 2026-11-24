@@ -76,8 +76,9 @@ class _NativeCallPageState extends State<NativeCallPage> {
   String _getCallUrl() {
     final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final parts = widget.room.split('_');
-    final id1 = parts.length > 1 ? parts : widget.myId;
-    final id2 = parts.length > 2 ? parts : widget.myId;
+    final id1 = parts.length > 1 ? parts.elementAt(1) : widget.myId;
+    final id2 = parts.length > 2 ? parts.elementAt(2) : widget.myId;
+    
     final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final camParam = isVideoMode ? (frontCam ? '&webcam&front&quality=1' : '&webcam&back&quality=1') : '&novideo';
