@@ -19,14 +19,18 @@ class NativeCallPage extends StatefulWidget {
 
 class _NativeCallPageState extends State<NativeCallPage> {
   WebViewController? _controller;
+  late bool isVideoMode;
   bool micMuted = false;
+  bool speakerOn = true;
   bool frontCam = true;
+  bool beautyFilter = false;
   Timer? _ringStopTimer;
   Timer? _endCheckTimer;
 
   @override
   void initState() {
     super.initState();
+    isVideoMode = widget.isVideo;
     FlutterRingtonePlayer().playNotification(looping: true);
     _ringStopTimer = Timer(const Duration(seconds: 10), () => FlutterRingtonePlayer().stop());
     _clearOldEndSignal();
@@ -72,11 +76,11 @@ class _NativeCallPageState extends State<NativeCallPage> {
   String _getCallUrl() {
     final safeRoom = 'dc_' + widget.room.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final parts = widget.room.split('_');
-    final id1 = parts.length > 1 ? parts[1] : widget.myId;
-    final id2 = parts.length > 2 ? parts[2] : widget.myId;
+    final id1 = parts.length > 1 ? parts : widget.myId;
+    final id2 = parts.length > 2 ? parts : widget.myId;
     final cleanMy = widget.myId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final cleanFriend = (widget.myId.contains(id1) ? id2 : id1).replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    final camParam = widget.isVideo ? (frontCam ? '&webcam&front&quality=1' : '&webcam&back&quality=1') : '&novideo';
+    final camParam = isVideoMode ? (frontCam ? '&webcam&front&quality=1' : '&webcam&back&quality=1') : '&novideo';
     return 'https://vdo' + '.' + 'ninja/?room=' + safeRoom +
         '&push=' + safeRoom + '_' + cleanMy +
         '&view=' + safeRoom + '_' + cleanFriend +
@@ -106,6 +110,26 @@ class _NativeCallPageState extends State<NativeCallPage> {
     if (mounted) setState(() => _controller = ctrl);
   }
 
+  Widget _roundBtn(IconData icon, String label, {bool active = false, Color? bg, VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: bg ?? (active ? Colors.white : const Color(0xFF2A3942)),
+            child: Icon(icon, color: active && bg == null ? Colors.black : Colors.white, size: 24),
+          ),
+          if (label.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -113,76 +137,169 @@ class _NativeCallPageState extends State<NativeCallPage> {
       body: SafeArea(
         child: Stack(
           children: [
-            if (_controller != null) Positioned.fill(child: WebViewWidget(controller: _controller!)),
-            if (!widget.isVideo)
-              Container(
-                color: const Color(0xFF0B141A),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircleAvatar(radius: 55, backgroundColor: Color(0xFF00897B), child: Icon(Icons.person, size: 65, color: Colors.white)),
-                      const SizedBox(height: 18),
-                      Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      const Text('🔊 Audio Call Connected', style: TextStyle(color: Colors.greenAccent, fontSize: 16)),
-                    ],
-                  ),
+            if (_controller != null)
+              Positioned.fill(
+                child: ColorFiltered(
+                  colorFilter: beautyFilter
+                      ? const ColorFilter.matrix([1.1, 0, 0, 0, 12, 0, 1.08, 0, 0, 10, 0, 0, 1.05, 0, 8, 0, 0, 0, 1, 0])
+                      : const ColorFilter.mode(Colors.transparent, BlendMode.dst),
+                  child: WebViewWidget(controller: _controller!),
                 ),
               ),
-            Positioned(
-              top: 16,
-              left: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-                child: Text((widget.isVideo ? '📹 ' : '📞 ') + widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            Positioned(
-              bottom: 30,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: Colors.white24,
-                    child: IconButton(
-                      icon: Icon(micMuted ? Icons.mic_off : Icons.mic, color: Colors.white, size: 28),
-                      onPressed: () {
-                        setState(() => micMuted = !micMuted);
-                        _controller?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
-                      },
+            if (!isVideoMode)
+              Container(
+                color: const Color(0xFF0B141A),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          CircleAvatar(backgroundColor: const Color(0xFF1F2C34), child: IconButton(icon: const Icon(Icons.close_fullscreen, color: Colors.white, size: 20), onPressed: () => Navigator.pop(context))),
+                          Column(
+                            children: [
+                              Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 2),
+                              const Row(children: [Icon(Icons.lock, color: Colors.white54, size: 12), SizedBox(width: 4), Text('End-to-end encrypted', style: TextStyle(color: Colors.white54, fontSize: 12))]),
+                            ],
+                          ),
+                          const CircleAvatar(backgroundColor: Color(0xFF1F2C34), child: Icon(Icons.person_add, color: Colors.white, size: 20)),
+                        ],
+                      ),
                     ),
-                  ),
-                  CircleAvatar(
-                    radius: 34,
-                    backgroundColor: Colors.red,
-                    child: IconButton(
-                      icon: const Icon(Icons.call_end, color: Colors.white, size: 32),
-                      onPressed: _hangupAndNotify,
-                    ),
-                  ),
-                  if (widget.isVideo)
+                    const Spacer(),
                     CircleAvatar(
-                      radius: 28,
-                      backgroundColor: Colors.white24,
+                      radius: 68,
+                      backgroundColor: const Color(0xFF00897B),
+                      child: Text(widget.friendName.isNotEmpty ? widget.friendName.toUpperCase() : 'D', style: const TextStyle(fontSize: 52, color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                    const Spacer(),
+                    Container(
+                      margin: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                      decoration: BoxDecoration(color: const Color(0xFF1F2C34), borderRadius: BorderRadius.circular(28)),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _roundBtn(Icons.volume_up, 'Speaker', active: speakerOn, onTap: () => setState(() => speakerOn = !speakerOn)),
+                              _roundBtn(Icons.videocam, 'Video', onTap: () {
+                                setState(() => isVideoMode = true);
+                                _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                              }),
+                              _roundBtn(micMuted ? Icons.mic_off : Icons.mic, 'Mute', active: micMuted, onTap: () {
+                                setState(() => micMuted = !micMuted);
+                                _controller?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
+                              }),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _roundBtn(Icons.more_horiz, 'More', onTap: () {}),
+                              _roundBtn(Icons.ios_share, 'Share', onTap: () {}),
+                              _roundBtn(Icons.call_end, 'End', bg: const Color(0xFFE53935), onTap: _hangupAndNotify),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (isVideoMode) ...[
+              Positioned(
+                top: 12,
+                left: 0,
+                right: 0,
+                child: Column(
+                  children: [
+                    Text(widget.friendName, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 6, color: Colors.black)])),
+                    const SizedBox(height: 2),
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                                          const SizedBox(height: 12),
+                    CircleAvatar(
+                      radius: 22,
+                      backgroundColor: Colors.black54,
                       child: IconButton(
-                        icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 28),
+                        icon: const Icon(Icons.cameraswitch, color: Colors.white, size: 20),
                         onPressed: () {
                           setState(() => frontCam = !frontCam);
                           _controller?.loadRequest(Uri.parse(_getCallUrl()));
                         },
                       ),
                     ),
-                ],
+                    const SizedBox(height: 12),
+                    CircleAvatar(
+                      radius: 22,
+                      backgroundColor: beautyFilter ? Colors.white : Colors.black54,
+                      child: IconButton(
+                        icon: Icon(Icons.auto_fix_high, color: beautyFilter ? Colors.black : Colors.white, size: 20),
+                        onPressed: () => setState(() => beautyFilter = !beautyFilter),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+                                Positioned(
+                bottom: 22,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  decoration: BoxDecoration(color: const Color(0xFF1F2C34).withOpacity(0.92), borderRadius: BorderRadius.circular(36)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      const CircleAvatar(radius: 22, backgroundColor: Color(0xFF2A3942), child: Icon(Icons.more_horiz, color: Colors.white)),
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: const Color(0xFF2A3942),
+                        child: IconButton(
+                          icon: const Icon(Icons.videocam, color: Colors.white),
+                          onPressed: () {
+                            setState(() => isVideoMode = false);
+                            _controller?.loadRequest(Uri.parse(_getCallUrl()));
+                          },
+                        ),
+                      ),
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: speakerOn ? Colors.white : const Color(0xFF2A3942),
+                        child: IconButton(
+                          icon: Icon(Icons.volume_up, color: speakerOn ? Colors.black : Colors.white),
+                          onPressed: () => setState(() => speakerOn = !speakerOn),
+                        ),
+                      ),
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: micMuted ? Colors.white : const Color(0xFF2A3942),
+                        child: IconButton(
+                          icon: Icon(micMuted ? Icons.mic_off : Icons.mic, color: micMuted ? Colors.black : Colors.white),
+                          onPressed: () {
+                            setState(() => micMuted = !micMuted);
+                            _controller?.runJavaScript("document.querySelectorAll('audio,video').forEach(e=>e.muted=" + micMuted.toString() + ");");
+                          },
+                        ),
+                      ),
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: const Color(0xFFE53935),
+                        child: IconButton(icon: const Icon(Icons.call_end, color: Colors.white), onPressed: _hangupAndNotify),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
-}
+              }
+              
