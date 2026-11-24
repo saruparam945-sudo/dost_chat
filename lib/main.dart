@@ -446,40 +446,62 @@ class _ChatPageState extends State<ChatPage> {
     if (mounted) setState(() {});
   }
 
+    final Set<String> _seenDocIds = {};
+
   Future<void> sync() async {
     try {
-      final res = await http.get(Uri.parse(baseUrl + '/c_' + room));
+      final res = await http.get(Uri.parse(baseUrl + '/c_' + room + '?pageSize=100'));
       if (res.statusCode == 200) {
+        final now = DateTime.now().millisecondsSinceEpoch;
         for (var d in (json.decode(res.body)['documents'] as List? ?? [])) {
+          final docPath = d['name'].toString();
           final f = d['fields'];
-          if (f != null && f['to']?['stringValue'] == widget.myId) {
-            await save({'t': f['t']?['stringValue'] ?? '', 'img': f['img']?['stringValue'] ?? '', 's': f['s']['stringValue']});
-            final docPath = d['name'].toString();
-            await http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + docPath));
-            
+          if (f == null) continue;
+          final ts = int.tryParse(f['ts']?['integerValue'] ?? '0') ?? 0;
+          if (ts > 0 && (now - ts) > 86400000) {
+            http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + docPath));
+            continue;
+          }
+          if (_seenDocIds.contains(docPath)) continue;
+          _seenDocIds.add(docPath);
+          final sender = f['s']?['stringValue'] ?? '';
+          if (sender != widget.myId) {
+            await save({
+              't': f['t']?['stringValue'] ?? '',
+              'img': f['img']?['stringValue'] ?? '',
+              'vid': f['vid']?['stringValue'] ?? '',
+              's': sender,
+            });
           }
         }
       }
     } catch (_) {}
   }
 
-  Future<void> send({String text = '', String imgBase64 = ''}) async {
-    if (text.isEmpty && imgBase64.isEmpty) return;
+  Future<void> send({String text = '', String imgBase64 = '', String vidBase64 = ''}) async {
+    if (text.isEmpty && imgBase64.isEmpty && vidBase64.isEmpty) return;
     msgCtrl.clear();
-    await save({'t': text, 'img': imgBase64, 's': widget.myId});
-    await http.post(
+    await save({'t': text, 'img': imgBase64, 'vid': vidBase64, 's': widget.myId});
+    final nowTs = DateTime.now().millisecondsSinceEpoch.toString();
+    final postRes = await http.post(
       Uri.parse(baseUrl + '/c_' + room),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
         'fields': {
           't': {'stringValue': text},
           'img': {'stringValue': imgBase64},
+          'vid': {'stringValue': vidBase64},
           's': {'stringValue': widget.myId},
           'to': {'stringValue': widget.friendId},
+          'ts': {'integerValue': nowTs},
         }
       }),
     );
-        try {
+    if (postRes.statusCode == 200) {
+      final createdName = json.decode(postRes.body)['name']?.toString() ?? '';
+      if (createdName.isNotEmpty) _seenDocIds.add(createdName);
+    }
+    try {
       final p = await SharedPreferences.getInstance();
       final senderName = p.getString('name') ?? 'Dost';
       await http.post(
@@ -488,22 +510,35 @@ class _ChatPageState extends State<ChatPage> {
         body: json.encode({
           'fields': {
             'fromName': {'stringValue': senderName},
-            'text': {'stringValue': text.isNotEmpty ? text : '📷 Photo bheji hai'},
+            'text': {'stringValue': text.isNotEmpty ? text : (vidBase64.isNotEmpty ? '🎥 Video bheji hai' : '📷 Photo bheji hai')},
           }
         }),
       );
     } catch (_) {}
-    
   }
-
-  Future<void> pickAndSendPhoto() async {
+  
+    Future<void> pickAndSendPhoto() async {
     final picker = ImagePicker();
-    final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 35, maxWidth: 600);
+    final XFile? file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 22, maxWidth: 420);
     if (file != null) {
       final bytes = await file.readAsBytes();
       await send(text: '📷 Photo', imgBase64: base64Encode(bytes));
     }
   }
+
+  Future<void> pickAndSendVideo() async {
+    final picker = ImagePicker();
+    final XFile? file = await picker.pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 12));
+    if (file != null) {
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 750000) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Video chhoti chunein (700KB se kam)')));
+        return;
+      }
+      await send(text: '🎥 Video Clip', vidBase64: base64Encode(bytes));
+    }
+  }
+  
 
   Future<void> startFreeCall(bool isVideo) async {
     try {
@@ -610,6 +645,8 @@ IconButton(
             child: Row(
               children: [
                 IconButton(icon: const Icon(Icons.photo_camera, color: Color(0xFF00897B)), onPressed: pickAndSendPhoto),
+                IconButton(icon: const Icon(Icons.videocam, color: Color(0xFF00897B)), onPressed: pickAndSendVideo),
+                
                 Expanded(child: TextField(controller: msgCtrl, decoration: const InputDecoration(hintText: 'मैसेज लिखें...', border: InputBorder.none))),
                 CircleAvatar(backgroundColor: const Color(0xFF00897B), child: IconButton(icon: const Icon(Icons.send, color: Colors.white, size: 20), onPressed: () => send(text: msgCtrl.text.trim()))),
               ],
