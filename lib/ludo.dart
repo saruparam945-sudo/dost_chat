@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:http/http.dart' as http;
+
 import 'package:permission_handler/permission_handler.dart';
 
 const String ludoBaseUrl = 'https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/projects/dostchat-e903a/databases/(default)/documents';
@@ -24,11 +23,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
   String statusMsg = 'आपकी बारी! Dice दबाएं';
   Timer? pollTimer;
 
-  RTCPeerConnection? _voicePc;
-  MediaStream? _voiceStream;
-  bool voiceMuted = false;
-  bool voiceConnected = false;
-  final Set<String> _voiceIceSet = {};
+  
 
   static const List<List<int>> mainPath = [
     [13,6],[12,6],[11,6],[10,6],[9,6],
@@ -56,14 +51,14 @@ class _LudoGamePageState extends State<LudoGamePage> {
   void initState() {
     super.initState();
     _syncState(initial: true);
-    _startLudoVoice();
+  
     pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _syncState());
   }
 
   @override
   void dispose() {
     pollTimer?.cancel();
-    _stopLudoVoice();
+    
     super.dispose();
   }
 
@@ -184,74 +179,7 @@ class _LudoGamePageState extends State<LudoGamePage> {
     });
     _pushState(extraTurn ? widget.myId : 'FRIEND');
   }
-    Future<void> _startLudoVoice() async {
-    try {
-      await [Permission.microphone].request();
-      _voiceStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
-      _voicePc = await createPeerConnection({
-        'iceServers': [
-          {'urls': 'stun:stun' + '.' + 'l' + '.' + 'google' + '.' + 'com:19302'},
-        ]
-      });
-      _voiceStream!.getTracks().forEach((t) => _voicePc!.addTrack(t, _voiceStream!));
-      _voicePc!.onConnectionState = (s) {
-        if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected && mounted) {
-          setState(() => voiceConnected = true);
-        }
-      };
-      _voicePc!.onIceCandidate = (c) async {
-        if (c.candidate != null) {
-          http.post(Uri.parse(ludoBaseUrl + '/lv_ice_' + widget.room), headers: {'Content-Type': 'application/json'}, body: json.encode({'fields': {'from': {'stringValue': widget.myId}, 'data': {'stringValue': json.encode(c.toMap())}}}));
-        }
-      };
-      final vUrl = Uri.parse(ludoBaseUrl + '/lv_' + widget.room + '/sig');
-      final res = await http.get(vUrl);
-      if (res.statusCode == 200 && json.decode(res.body)['fields']?['offer'] != null && json.decode(res.body)['fields']?['from']?['stringValue'] != widget.myId && json.decode(res.body)['fields']?['answer'] == null) {
-        final f = json.decode(res.body)['fields'];
-        final off = json.decode(f['offer']['stringValue']);
-        await _voicePc!.setRemoteDescription(RTCSessionDescription(off['sdp'], off['type']));
-        final ans = await _voicePc!.createAnswer();
-        await _voicePc!.setLocalDescription(ans);
-        await http.patch(vUrl, headers: {'Content-Type': 'application/json'}, body: json.encode({'fields': {'from': {'stringValue': f['from']['stringValue']}, 'offer': {'stringValue': f['offer']['stringValue']}, 'answer': {'stringValue': json.encode(ans.toMap())}}}));
-      } else {
-        final off = await _voicePc!.createOffer();
-        await _voicePc!.setLocalDescription(off);
-        await http.patch(vUrl, headers: {'Content-Type': 'application/json'}, body: json.encode({'fields': {'from': {'stringValue': widget.myId}, 'offer': {'stringValue': json.encode(off.toMap())}}}));
-      }
-      Timer.periodic(const Duration(seconds: 2), (t) async {
-        if (!mounted || _voicePc == null) { t.cancel(); return; }
-        try {
-          final r = await http.get(vUrl);
-          if (r.statusCode == 200) {
-            final f = json.decode(r.body)['fields'];
-            if (f != null && f['answer'] != null && f['from']?['stringValue'] == widget.myId && await _voicePc!.getRemoteDescription() == null) {
-              final ans = json.decode(f['answer']['stringValue']);
-              await _voicePc!.setRemoteDescription(RTCSessionDescription(ans['sdp'], ans['type']));
-            }
-          }
-          final ir = await http.get(Uri.parse(ludoBaseUrl + '/lv_ice_' + widget.room));
-          if (ir.statusCode == 200 && await _voicePc!.getRemoteDescription() != null) {
-            for (var d in (json.decode(ir.body)['documents'] as List? ?? [])) {
-              if (!_voiceIceSet.contains(d['name']) && d['fields']?['from']?['stringValue'] != widget.myId) {
-                _voiceIceSet.add(d['name']);
-                final cm = json.decode(d['fields']['data']['stringValue']);
-                await _voicePc!.addCandidate(RTCIceCandidate(cm['candidate'].toString(), cm['sdpMid']?.toString() ?? '0', int.tryParse(cm['sdpMLineIndex'].toString()) ?? 0));
-                http.delete(Uri.parse('https://firestore' + '.' + 'googleapis' + '.' + 'com/v1/' + d['name'].toString()));
-              }
-            }
-          }
-        } catch (_) {}
-      });
-    } catch (_) {}
-  }
-
-  Future<void> _stopLudoVoice() async {
-    try { await http.delete(Uri.parse(ludoBaseUrl + '/lv_' + widget.room + '/sig')); } catch (_) {}
-    _voiceStream?.getTracks().forEach((t) => t.stop());
-    await _voicePc?.close();
-    _voicePc = null;
-  }
-
+    
   Color _getCellColor(int r, int c) {
     if (r < 6 && c < 6) return Colors.red.shade600;
     if (r < 6 && c > 8) return Colors.blue.shade600;
@@ -291,32 +219,14 @@ class _LudoGamePageState extends State<LudoGamePage> {
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(16)),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('🟢 आप (' + myHome.toString() + '/4)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text(voiceConnected ? '🔊 Live Voice Connected' : '🎙️ Voice Room Active', style: const TextStyle(color: Colors.greenAccent, fontSize: 11)),
-                  ],
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: voiceMuted ? Colors.red : Colors.teal, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
-                  onPressed: () {
-                    setState(() => voiceMuted = !voiceMuted);
-                    _voiceStream?.getAudioTracks().forEach((t) => t.enabled = !voiceMuted);
-                  },
-                  icon: Icon(voiceMuted ? Icons.mic_off : Icons.mic, size: 18),
-                  label: Text(voiceMuted ? 'Muted' : 'Mic On', style: const TextStyle(fontSize: 12)),
-                ),
-                Text('🔴 ' + widget.friendName + ' (' + fHome.toString() + '/4)', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-              ],
-            ),
+                    Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('🟢 आप अंदर: ' + myHome.toString() + '/4', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text('🔴 दोस्त अंदर: ' + fHome.toString() + '/4', style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+            ],
           ),
+          
           const SizedBox(height: 10),
           Container(
             width: w,
